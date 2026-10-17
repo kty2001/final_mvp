@@ -26,7 +26,12 @@ function reasonShort(a) {
 function agentRespond(text) {
   const tools = [];
   const call = (name, args, fn, summarize) => { const r = fn(); tools.push({ name, args, result: summarize(r) }); return r; };
-  const res = o => ({ text: [], items: [], refs: [], action: null, link: null, chart: null, previewRows: null, ...o, tools });
+  const res = o => {
+    const r = { text: [], items: [], refs: [], action: null, link: null, chart: null, previewRows: null, ...o, tools };
+    r.citation = verifyCitations(r.text, r.items);
+    if (r.citation) tools.push({ name: 'verify_citations', args: `인용 ${r.citation.total}건`, result: `출처 일치 ${r.citation.ok}건` });
+    return r;
+  };
   const refsOf = items => [...new Set(items.flatMap(a => a.facts.map(f => f.ref)))];
   const has = re => re.test(text);
   const taskAction = a => (a.status === 'active' && !state.tasks.some(t => t.key === a.key)
@@ -101,6 +106,7 @@ function agentRespond(text) {
   if (has(/왜|이유|근거|설명|어째서/) && targets.length) {
     const a = targets[0];
     const lines = call('get_assessment', a.key, () => explain(a), r => `설명 ${r.length}문단`);
+    if (a.advisory) call('screen_external_text', `source=공급업체 ${a.vuln.id}`, () => a.advisory, r => `지시성 문장 ${r.flagged.length}건 — 데이터로만 처리`);
     // 질의 전제(예: "왜 긴급?")가 실제 판정과 다르면 먼저 정정
     const asked = PRIORITY_LEVELS.map(l => l.label).find(l => text.includes(l));
     const correction = asked && asked !== a.priority

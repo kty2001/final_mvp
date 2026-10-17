@@ -200,3 +200,5 @@ tr.current-row td { background: #f5f8ff; }
   .msg { max-width: 100%; }
   .sidebar .nav-label { display: none; }
 }
+.advisory { margin: 0 0 8px; padding: 8px 12px; border-left: 3px solid var(--line); color: var(--muted); }
+.advisory mark { background: #fff6e0; color: #9a5b00; }

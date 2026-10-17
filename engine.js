@@ -101,8 +101,26 @@ function assess(asset, v) {
   return {
     key: `${asset.id}|${v.id}`, asset, vuln: v, match, status, score, label, cls,
     priority: level.label, priorityCls: level.cls, confidence, factors,
-    facts: getSources(v), conditions, inferences, uncertainties, checks,
+    facts: getSources(v), conditions, inferences, uncertainties, checks, advisory: screenAdvisory(v),
   };
+}
+
+// 외부 문서 속 지시성 문장 탐지: 데이터로만 취급하고 판정·업무에 반영하지 않음 (프롬프트 인젝션 방어)
+const INSTRUCTION_PATTERN = /무시하|지시|보고하라|처리하라|생성하라|ignore|instruction/i;
+function screenAdvisory(v) {
+  const text = ADVISORY_TEXTS[v.id];
+  if (!text) return null;
+  return { text, flagged: text.split(/(?<=\.)\s+/).filter(s => INSTRUCTION_PATTERN.test(s)) };
+}
+
+// 인용 검증(목업): 답변 속 [출처] 태그가 대상 항목의 실제 근거 자료에 있는지 대조
+const CITE_PATTERN = /\[(NVD|KEV|EPSS|공급업체|KISA|ATT&CK)\]/g;
+function verifyCitations(lines, items) {
+  const cited = [...new Set(lines.join(' ').match(CITE_PATTERN) || [])].map(c => c.slice(1, -1));
+  if (!cited.length) return null;
+  const avail = new Set(items.flatMap(a => a.facts.map(f => f.ref)));
+  const missing = cited.filter(r => !avail.has(r));
+  return { total: cited.length, ok: cited.length - missing.length, missing };
 }
 
 function explain(a) {
@@ -133,6 +151,7 @@ function explain(a) {
         : `규칙 기반 점수 ${a.score}점으로 '${a.label}' 대응을 권장한다. 판단 신뢰도는 ${a.confidence}이다.`,
   });
   if (a.uncertainties.length) lines.push({ tag: '주의', text: a.uncertainties.join(' / ') });
+  if (a.advisory?.flagged.length) lines.push({ tag: '주의', text: `공급업체 권고문 원문에 지시성 문장 ${a.advisory.flagged.length}건 포함 — 외부 문서는 데이터로만 취급하며 판정·조치에 반영하지 않음.` });
   return lines;
 }
 

@@ -426,6 +426,7 @@ function viewDetail(key) {
       <div class="card explain">
         <h3>AI 분석 설명</h3>
         ${explain(sys).map(l => `<p><span class="t t-${l.tag}">${l.tag}</span>${esc(l.text)}</p>`).join('')}
+        ${citationNote(verifyCitations(explain(sys).map(l => l.text), [a]))}
         <p class="muted">근거 자료와 규칙 평가 결과만으로 생성한 설명(목업 템플릿). LLM은 위험도를 결정하지 않음</p>
       </div>
     </div>
@@ -444,6 +445,12 @@ function viewDetail(key) {
         ${a.facts.map(f => `<tr><td><a href="${esc(f.url)}" target="_blank" rel="noopener">${esc(f.name)}</a></td><td>${esc(f.fact)}</td><td class="muted">${f.collectedAt}</td></tr>`).join('')}
       </table></div>
     </div>
+    ${a.advisory ? `<div class="card">
+      <h3>공급업체 권고문 원문 점검 (외부 텍스트)</h3>
+      <blockquote class="advisory">${a.advisory.text.split(/(?<=\.)\s+/).map(s => a.advisory.flagged.includes(s) ? `<mark>${esc(s)}</mark>` : esc(s)).join(' ')}</blockquote>
+      ${a.advisory.flagged.length ? `<p class="error">지시성 문장 ${a.advisory.flagged.length}건 감지 — 실행하지 않음</p>` : ''}
+      <p class="muted">외부 문서는 데이터로만 취급 — 문서 안의 지시는 따르지 않으며 위험 판정·조치 업무에 반영하지 않음</p>
+    </div>` : ''}
     <div class="card">
       <div class="toolbar"><h3 style="margin:0">조치 업무</h3>
         ${a.status === 'active' ? `<button class="small" data-action="create-tasks" data-id="${esc(key)}">조치 업무 생성</button>` : ''}
@@ -488,6 +495,11 @@ function createTasks(key) {
 }
 
 // ---------- 화면: 대화형 분석 ----------
+function citationNote(c) {
+  if (!c) return '';
+  return `<div class="muted">인용 검증 ${c.ok}/${c.total} 출처 확인${c.missing.length ? ` · <span class="error">근거 없는 인용: ${c.missing.map(esc).join(', ')}</span>` : ''}</div>`;
+}
+
 function renderMsg(m, i, byKey) {
   if (m.role === 'user') return `<div class="msg user">${esc(m.text)}</div>`;
   const items = m.itemKeys.map(k => byKey[k]).filter(Boolean);
@@ -496,6 +508,7 @@ function renderMsg(m, i, byKey) {
     ${m.chart ? renderChart(m.chart) : ''}
     ${m.previewRows ? intakeTable(m.previewRows) : ''}
     ${items.length ? `<ul class="items">${items.map(a => `<li>${badge(a.label, a.cls)} <a href="${detailLink(a.key)}">${esc(a.asset.name)} × ${a.vuln.id}</a> <span class="muted">${a.status === 'active' ? `${a.score}점 · 신뢰도 ${a.confidence}` : ''}</span></li>`).join('')}</ul>` : ''}
+    ${citationNote(m.citation)}
     ${m.refs.length ? `<div class="muted">근거 출처 ${m.refs.map(r => `<span class="chip">${esc(r)}</span>`).join('')}</div>` : ''}
     ${m.link ? `<p><a href="${m.link.href}">${esc(m.link.label)} →</a></p>` : ''}
     ${m.action ? (m.done ? `<p class="muted">✔ ${esc(m.doneText)}</p>`
