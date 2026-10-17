@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>CTI 대응 도우미</title>
-  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="styles.css?v=3">
 </head>
 <body>
   <header class="topbar">
@@ -18,15 +18,19 @@
   <div class="layout">
     <nav class="sidebar">
       <a href="#dashboard" data-nav="dashboard">대시보드</a>
+      <a href="#chat" data-nav="chat">대화형 분석</a>
       <a href="#assets" data-nav="assets">자산 관리</a>
       <a href="#analysis" data-nav="analysis">위협 분석</a>
       <a href="#tasks" data-nav="tasks">조치 업무</a>
+      <a href="#report" data-nav="report">리포트</a>
       <a href="#history" data-nav="history">이력</a>
     </nav>
     <main id="view"></main>
   </div>
-  <script src="data.js"></script>
-  <script src="engine.js"></script>
-  <script src="app.js"></script>
+  <script src="data.js?v=3"></script>
+  <script src="engine.js?v=3"></script>
+  <script src="report.js?v=3"></script>
+  <script src="agent.js?v=3"></script>
+  <script src="app.js?v=3"></script>
 </body>
 </html>

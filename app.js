@@ -10,6 +10,7 @@ let state;
 let analysisFilter = 'active';
 let taskFilter = 'open';
 let editingAssetId = null;
+let chatLog = [];
 
 const pad = n => String(n).padStart(2, '0');
 function today() { const d = new Date(); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; }
@@ -255,7 +256,7 @@ function viewDetail(key) {
 
 function createTasks(key) {
   const a = allAssessments().find(x => x.key === key);
-  if (!a) return;
+  if (!a) return 0;
   const existing = new Set(state.tasks.filter(t => t.key === key).map(t => t.title));
   const created = taskTemplates(a).filter(t => !existing.has(t.title)).map(t => ({
     id: `T${++state.seq}`, key, assetName: a.asset.name, cveId: a.vuln.id,
@@ -266,6 +267,76 @@ function createTasks(key) {
   addHistory('조치 업무', `${a.asset.name} × ${a.vuln.id}: 조치 업무 ${created.length}건 생성`, key);
   save();
   route();
+  return created.length;
+}
+
+// ---------- 화면: 대화형 분석 ----------
+function renderMsg(m, i, byKey) {
+  if (m.role === 'user') return `<div class="msg user">${esc(m.text)}</div>`;
+  const items = m.itemKeys.map(k => byKey[k]).filter(Boolean);
+  return `<div class="msg agent">
+    ${m.text.map(t => `<p>${esc(t)}</p>`).join('')}
+    ${items.length ? `<ul class="items">${items.map(a => `<li>${badge(a.label, a.cls)} <a href="${detailLink(a.key)}">${esc(a.asset.name)} × ${a.vuln.id}</a> <span class="muted">${a.status === 'active' ? `${a.score}점 · 신뢰도 ${a.confidence}` : ''}</span></li>`).join('')}</ul>` : ''}
+    ${m.refs.length ? `<div class="muted">근거 출처 ${m.refs.map(r => `<span class="chip">${esc(r)}</span>`).join('')}</div>` : ''}
+    ${m.link ? `<p><a href="${m.link.href}">${esc(m.link.label)} →</a></p>` : ''}
+    ${m.action ? (m.done ? `<p class="muted">✔ ${esc(m.doneText)}</p>` : `<button class="small" data-action="agent-approve" data-id="${i}">${esc(m.action.label)}</button>`) : ''}
+    <details class="tools"><summary>도구 호출 ${m.tools.length}건</summary><ol>${m.tools.map(t => `<li><code>${esc(t.name)}(${esc(t.args)})</code> → ${esc(t.result)}</li>`).join('')}</ol></details>
+  </div>`;
+}
+
+function viewChat() {
+  const byKey = Object.fromEntries(allAssessments().map(a => [a.key, a]));
+  return `
+    <h2>대화형 분석</h2>
+    <p class="sub">자연어 질의 → 에이전트가 평가 도구를 호출해 근거와 함께 답변 (목업 에이전트, 실제 LLM 미연동)</p>
+    <div class="card">
+      <div class="chat-log" id="chatLog">${chatLog.length ? chatLog.map((m, i) => renderMsg(m, i, byKey)).join('') : '<p class="empty">아래 예시 질문을 누르거나 직접 입력</p>'}</div>
+      <div class="examples">${AGENT_EXAMPLES.map(q => `<button class="small ghost" data-action="chat-example" data-id="${esc(q)}">${esc(q)}</button>`).join('')}</div>
+      <form id="chatForm" class="chat-form"><input name="q" placeholder="예: FortiOS 관련 위협 왜 긴급이야?" autocomplete="off"><button type="submit">질의</button></form>
+    </div>`;
+}
+
+function sendChat(text) {
+  text = text.trim();
+  if (!text) return;
+  const { items, ...rest } = agentRespond(text);
+  chatLog.push({ role: 'user', text }, { role: 'agent', ...rest, itemKeys: items.map(a => a.key) });
+  route();
+}
+
+// ---------- 화면: 리포트 ----------
+function renderSection(s) {
+  return `<h3>${esc(s.heading)}</h3>
+    ${(s.paragraphs || []).map(p => `<p>${esc(p)}</p>`).join('')}
+    ${s.bullets ? `<ul class="plain">${s.bullets.map(b => `<li>${esc(b)}</li>`).join('')}</ul>` : ''}
+    ${s.table ? `<div class="table-wrap"><table><tr>${s.table.head.map(h => `<th>${esc(h)}</th>`).join('')}</tr>${s.table.rows.map(r => `<tr>${r.map(c => `<td>${esc(c)}</td>`).join('')}</tr>`).join('')}</table></div>` : ''}`;
+}
+
+function viewReport(type) {
+  if (!REPORT_TYPES[type]) type = 'exec';
+  const r = buildReport(type);
+  return `
+    <h2>자동 리포트</h2>
+    <p class="sub">현재 평가·조치 데이터로 즉시 생성 — 주간 정기 생성·이메일 발송은 후속 단계</p>
+    <div class="toolbar no-print">
+      ${Object.entries(REPORT_TYPES).map(([k, l]) => `<a class="tab ${k === type ? 'active' : ''}" href="#report/${k}">${l}</a>`).join('')}
+      <button class="small" data-action="report-print">인쇄·PDF 저장</button>
+      <button class="small ghost" data-action="report-md" data-id="${type}">Markdown 다운로드</button>
+    </div>
+    <div class="card report">
+      <h2>${esc(r.title)}</h2>
+      <p class="muted">생성 일시 ${r.generatedAt} · ${esc(r.scope)} · 시연용 가상 데이터</p>
+      ${r.sections.map(renderSection).join('')}
+    </div>`;
+}
+
+function downloadMarkdown(type) {
+  const r = buildReport(type);
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(new Blob([reportToMarkdown(r)], { type: 'text/markdown' }));
+  link.download = `${r.title}_${today()}.md`;
+  link.click();
+  setTimeout(() => URL.revokeObjectURL(link.href), 1000);
 }
 
 // ---------- 화면: 조치 업무 ----------
@@ -341,8 +412,16 @@ function runSimulation() {
 // ---------- 라우팅·이벤트 ----------
 function route() {
   const [view, param] = (location.hash.slice(1) || 'dashboard').split('/');
-  const views = { dashboard: viewDashboard, assets: viewAssets, analysis: viewAnalysis, tasks: viewTasks, history: viewHistory };
-  $view.innerHTML = view === 'analysis' && param ? viewDetail(decodeURIComponent(param)) : (views[view] || viewDashboard)();
+  const views = {
+    dashboard: viewDashboard, chat: viewChat, assets: viewAssets, analysis: p => (p ? viewDetail(p) : viewAnalysis()),
+    tasks: viewTasks, report: viewReport, history: viewHistory,
+  };
+  $view.innerHTML = (views[view] || viewDashboard)(param && decodeURIComponent(param));
+  if (view === 'chat') {
+    const log = document.getElementById('chatLog');
+    log.scrollTop = log.scrollHeight;
+    document.querySelector('#chatForm input').focus();
+  }
   document.querySelectorAll('[data-nav]').forEach(a => a.classList.toggle('active', a.dataset.nav === (views[view] ? view : 'dashboard')));
   const left = SIM_UPDATES.length - state.simStep;
   const btn = document.getElementById('simBtn');
@@ -359,7 +438,7 @@ document.addEventListener('click', e => {
     case 'simulate': runSimulation(); break;
     case 'reset':
       try { localStorage.removeItem(STORE_KEY); } catch (err) { /* 무시 */ }
-      state = seedState(); editingAssetId = null;
+      state = seedState(); editingAssetId = null; chatLog = [];
       reassess('', true);
       location.hash = '#dashboard'; route();
       break;
@@ -375,6 +454,18 @@ document.addEventListener('click', e => {
       break;
     }
     case 'create-tasks': createTasks(id); break;
+    case 'chat-example': sendChat(id); break;
+    case 'agent-approve': {
+      const m = chatLog[Number(id)];
+      if (!m || m.done) break;
+      const n = createTasks(m.action.key);
+      m.done = true;
+      m.doneText = `승인됨 — 조치 업무 ${n}건 생성 (중복 제외)`;
+      route();
+      break;
+    }
+    case 'report-print': window.print(); break;
+    case 'report-md': downloadMarkdown(id); break;
     case 'mark-patched': {
       const a = state.assets.find(x => x.id === id);
       a.patch = '적용 완료';
@@ -393,9 +484,8 @@ document.addEventListener('change', e => {
 });
 
 document.addEventListener('submit', e => {
-  if (e.target.id !== 'assetForm') return;
-  e.preventDefault();
-  saveAsset(new FormData(e.target));
+  if (e.target.id === 'assetForm') { e.preventDefault(); saveAsset(new FormData(e.target)); }
+  else if (e.target.id === 'chatForm') { e.preventDefault(); sendChat(e.target.q.value); }
 });
 
 window.addEventListener('hashchange', route);
