@@ -23,6 +23,18 @@ function reasonShort(a) {
     .filter(Boolean).join(', ');
 }
 
+// 비전문가용 쉬운 말 이유 (LLM 문장 작성 목업 — 근거 값은 규칙 평가 결과)
+function plainReasons(a) {
+  const { vuln: v, asset } = a;
+  return [
+    v.kev ? '실제 공격에 쓰이고 있는 취약점' : v.epss >= 0.1 ? '공격 시도 가능성이 높아지는 중' : null,
+    v.cvss >= 9 ? '매우 심각한 결함' : v.cvss >= 7 ? '심각한 결함' : '중간 이하 결함',
+    asset.exposure === '예' ? '인터넷에서 바로 접근 가능' : asset.exposure === '미확인' ? '인터넷 노출 여부 확인 필요' : '내부망 전용',
+    asset.criticality === '상' ? '핵심 업무 자산' : null,
+    a.match.status === 'potential' ? '버전을 몰라 영향 여부 판단 보류' : null,
+  ].filter(Boolean);
+}
+
 function agentRespond(text) {
   const tools = [];
   const call = (name, args, fn, summarize) => { const r = fn(); tools.push({ name, args, result: summarize(r) }); return r; };

@@ -161,7 +161,7 @@ function postBriefing(reason, summary) {
   if (!b) return;
   const { items, ...rest } = b;
   chatLog.push({ role: 'agent', ...rest, itemKeys: items.map(a => a.key) });
-  notify('브리핑', '에이전트 자동 브리핑', b.text[0], '#chat');
+  notify('브리핑', '에이전트 자동 브리핑', b.text[0], '#todo');
   save();
 }
 
@@ -182,7 +182,83 @@ function renderTopbar() {
     : '<p class="empty">알림 없음 — 시뮬레이션이나 자산 등록으로 긴급 위협이 생기면 표시</p>'}`;
 }
 
-// ---------- 화면: 대시보드 ----------
+// ---------- 화면: 할 일 (주 사용자 홈) ----------
+// 사용자는 메뉴를 탐색하지 않고 카드 단위로 처리: 왜(쉬운 말) → 할 일 체크 → 필요 시 근거·에이전트 설명
+const TODO_GROUPS = [
+  { title: '오늘 처리', hint: '실제 공격 위험이 큰 항목', match: a => a.priority === '긴급' },
+  { title: '이번 주', hint: '위험 높음', match: a => a.priority === '높음' },
+  { title: '이번 달', hint: '여유 있게 처리', match: a => ['보통', '낮음'].includes(a.priority), collapsed: true },
+];
+
+function todoCard(a) {
+  const tasks = state.tasks.filter(t => t.key === a.key);
+  const lines = explain(a);
+  const allDone = tasks.length && tasks.every(t => t.status === '완료');
+  return `<div class="card todo-card">
+    <div class="head">${badge(a.label, a.cls)} <b>${esc(a.asset.name)}</b> <span class="muted">${esc(a.vuln.title)}</span></div>
+    <p class="why"><b>왜</b> ${plainReasons(a).map(esc).join(' · ')}</p>
+    ${tasks.length
+      ? `<ul class="checklist">${tasks.map(t => `<li><label><input type="checkbox" data-todo-task="${t.id}" ${t.status === '완료' ? 'checked' : ''}> ${esc(t.title)}</label>${t.autoClosed ? ' <span class="chip">자동 종결</span>' : ''}</li>`).join('')}</ul>`
+      : `<ul class="checklist draft">${taskTemplates(a).slice(0, 3).map(t => `<li>${esc(t.title)}</li>`).join('')}</ul>
+        <button class="small" data-action="create-tasks" data-id="${esc(a.key)}">할 일로 등록</button>`}
+    ${allDone ? `<p class="muted">할 일 완료 — 패치 반영 시 목록에서 빠짐 <button class="small ghost" data-action="mark-patched" data-id="${a.asset.id}">패치 적용 완료로 반영</button></p>` : ''}
+    <details><summary>에이전트 설명</summary>${lines.map(l => `<p><span class="t t-${l.tag}">${l.tag}</span>${esc(l.text)}</p>`).join('')}
+      ${citationNote(verifyCitations(lines.map(l => l.text), [a]))}</details>
+    <a href="${detailLink(a.key)}">근거·What-if 보기 →</a>
+  </div>`;
+}
+
+function checkCard(list) {
+  if (!list.length) return '';
+  return `<div class="card todo-check">
+    <h3>확인 필요 — 정보가 부족해 판단 보류 (${list.length})</h3>
+    <ul class="plain">${list.map(a => `<li>${badge(a.label, a.cls)} <a href="${detailLink(a.key)}">${esc(a.asset.name)} × ${a.vuln.id}</a>
+      <span class="muted">${esc(a.checks.filter(c => !c.startsWith('공급업체')).join(', '))}</span></li>`).join('')}</ul>
+    ${discoveryPreview
+      ? (discoveryPreview.length ? `${discoveryTable(discoveryPreview, false)}
+        <div class="toolbar"><button class="small" data-action="todo-discover-apply">승인 — ${discoveryPreview.length}건 반영</button>
+          <button class="small ghost" data-action="discover-clear">취소</button></div>` : '<p class="empty">새로 확인된 정보 없음 — 담당자 직접 확인 필요</p>')
+      : '<div class="toolbar"><button class="small" data-action="todo-discover">에이전트 자동 확인</button><span class="muted">연결 소스에서 버전·노출 정보 수집 (목업) → 승인 후 반영</span></div>'}
+  </div>`;
+}
+
+function viewTodo() {
+  const list = allAssessments();
+  const byKey = Object.fromEntries(list.map(a => [a.key, a]));
+  const active = list.filter(a => a.status === 'active');
+  const unsure = active.filter(a => a.match.status === 'potential' || a.confidence === '낮음');
+  const ready = active.filter(a => !unsure.includes(a));
+  const done = state.tasks.filter(t => t.status === '완료').length;
+  const rate = state.tasks.length ? Math.round((done / state.tasks.length) * 100) : 0;
+  const brief = chatLog.map((m, i) => [m, i]).filter(([m]) => m.proactive).pop();
+  const report = buildReport('exec');
+  const sent = state.reportLog.find(l => l.trigger === '수동 발송(목업)');
+  return `
+    <h2>이번 주 할 일</h2>
+    <p class="sub">${esc(state.name)} · 대응 필요 ${active.length}건 · 할 일 처리율 ${rate}% (${done}/${state.tasks.length}) — 위 카드부터 처리</p>
+    <div class="meter"><span style="width:${rate}%"></span></div>
+    ${onboardingCard()}
+    ${brief ? `<div class="card"><h3>에이전트 브리핑</h3>${renderMsg(brief[0], brief[1], byKey)}</div>` : ''}
+    ${checkCard(unsure)}
+    ${TODO_GROUPS.map(g => {
+      const items = ready.filter(g.match);
+      if (!items.length) return '';
+      const body = items.map(todoCard).join('');
+      return g.collapsed
+        ? `<details class="todo-group"><summary>${g.title} (${items.length}) <span class="muted">${g.hint}</span></summary>${body}</details>`
+        : `<section class="todo-group"><h3>${g.title} (${items.length}) <span class="muted">${g.hint}</span></h3>${body}</section>`;
+    }).join('')}
+    ${active.length ? '' : '<div class="card"><p class="empty">대응할 위협 없음</p></div>'}
+    <div class="card">
+      <h3>대표 보고</h3>
+      <p>${esc(report.summary)}</p>
+      <div class="toolbar"><a href="#report/exec">미리보기 →</a>
+        <button class="small" data-action="send-exec">이번 주 보고 보내기 (목업)</button>
+        <span class="muted">수신 ${esc(state.schedules.exec.to)}${sent ? ` · 최근 발송 ${sent.generatedAt}` : ''}</span></div>
+    </div>`;
+}
+
+// ---------- 화면: 위협 현황 (상세 분석) ----------
 function onboardingCard() {
   if (!state.onboarding) return '';
   const steps = [
@@ -208,9 +284,8 @@ function viewDashboard() {
   ];
   const vulns = [...state.vulns].sort((a, b) => b.published.localeCompare(a.published));
   return `
-    <h2>위협 인텔리전스 대시보드</h2>
-    <p class="sub">${esc(state.name)} (${esc(state.industry)}) · 등록 자산 ${state.assets.length}건 기준 · 위험도 높은 항목부터 확인</p>
-    ${onboardingCard()}
+    <h2>위협 현황 (상세 분석)</h2>
+    <p class="sub">${esc(state.name)} (${esc(state.industry)}) · 등록 자산 ${state.assets.length}건 기준 · 전체 위험 현황·분포·추이</p>
     <div class="grid kpi">${kpis.map(([l, n, h]) => `<div class="card"><div class="label">${l}</div><div class="num">${n}</div><div class="hint">${h}</div></div>`).join('')}</div>
     <div class="grid two">
       <div class="card">${renderChart(statDistribution(list))}</div>
@@ -800,7 +875,7 @@ function addTenant(form) {
   switchTenant(id);
   addHistory('고객사', `고객사 생성: ${t.name} (${t.plan} 플랜)`);
   save();
-  location.hash = '#dashboard';
+  location.hash = '#todo';
   route();
 }
 
@@ -846,13 +921,13 @@ function runSimulation() {
 
 // ---------- 라우팅·이벤트 ----------
 function route() {
-  const [view, param] = (location.hash.slice(1) || 'dashboard').split('/');
+  const [view, param] = (location.hash.slice(1) || 'todo').split('/');
   const views = {
-    dashboard: viewDashboard, chat: viewChat, assets: viewAssets, analysis: p => (p ? viewDetail(p) : viewAnalysis()),
+    todo: viewTodo, dashboard: viewDashboard, chat: viewChat, assets: viewAssets, analysis: p => (p ? viewDetail(p) : viewAnalysis()),
     tasks: viewTasks, report: viewReport, history: viewHistory, tenants: viewTenants, plans: viewPlans,
   };
-  $view.innerHTML = (views[view] || viewDashboard)(param && decodeURIComponent(param));
-  document.querySelectorAll('[data-nav]').forEach(a => a.classList.toggle('active', a.dataset.nav === (views[view] ? view : 'dashboard')));
+  $view.innerHTML = (views[view] || viewTodo)(param && decodeURIComponent(param));
+  document.querySelectorAll('[data-nav]').forEach(a => a.classList.toggle('active', a.dataset.nav === (views[view] ? view : 'todo')));
   const left = SIM_UPDATES.length - store.simStep;
   const btn = document.getElementById('simBtn');
   btn.textContent = left ? `위협 정보 갱신 시뮬레이션 (${left})` : '시뮬레이션 완료';
@@ -876,7 +951,7 @@ document.addEventListener('click', e => {
     case 'reset':
       try { localStorage.removeItem(STORE_KEY); } catch (err) { /* 무시 */ }
       store = seedStore(); initTenants(); switchTenant('A');
-      location.hash = '#dashboard'; route();
+      location.hash = '#todo'; route();
       break;
     case 'toggle-notif': notifOpen = !notifOpen; renderTopbar(); break;
     case 'read-all': state.notifications.forEach(n => { n.read = true; }); save(); renderTopbar(); break;
@@ -979,7 +1054,26 @@ document.addEventListener('click', e => {
       break;
     }
     case 'run-schedules': runSchedules(); break;
-    case 'switch-tenant': switchTenant(id); location.hash = '#dashboard'; route(); break;
+    case 'switch-tenant': switchTenant(id); location.hash = '#todo'; route(); break;
+    case 'todo-discover':
+      discoveryPreview = runDiscovery(discoverySources, state.assets, state.id).filter(f => f.kind !== '확인');
+      route();
+      break;
+    case 'todo-discover-apply': {
+      const r = applyDiscovery(discoveryPreview);
+      discoveryPreview = null;
+      if (!r.ok) formError = r.msg;
+      route();
+      break;
+    }
+    case 'send-exec': {
+      const to = state.schedules.exec.to;
+      const log = archiveReport('exec', '수동 발송(목업)', null, to);
+      addHistory('리포트', `${log.title} 발송(목업): ${to}`);
+      notify('리포트', '대표 보고 발송 완료(목업)', to, `#report/log-${log.id}`);
+      save(); route();
+      break;
+    }
     case 'mark-patched': {
       const a = state.assets.find(x => x.id === id);
       a.patch = '적용 완료';
@@ -1008,6 +1102,7 @@ document.addEventListener('change', e => {
     save();
   }
   else if (el.dataset.taskField) updateTask(el.dataset.taskId, el.dataset.taskField, el.value);
+  else if (el.dataset.todoTask) updateTask(el.dataset.todoTask, 'status', el.checked ? '완료' : '대기');
 });
 
 function updateWhatIf() {
