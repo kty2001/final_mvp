@@ -4,7 +4,7 @@
 const AGENT_EXAMPLES = [
   '지금 제일 급한 거 뭐야?', 'VPN 관련 위협 정리해줘', 'Jenkins 건은 왜 긴급이야?', '버전 확인 필요한 자산 알려줘',
   '등급별 위험 분포 보여줘', '지난 8주 추이 보여줘', '고객사별 현황 비교해줘',
-  '자산 등록: 영업팀 파일 서버 톰캣 9.0.90 외부 공개', '이번 주 경영진 보고서 만들어줘',
+  '미확인 정보 채워줘', '자산 등록: 영업팀 파일 서버 톰캣 9.0.90 외부 공개', '이번 주 경영진 보고서 만들어줘',
 ];
 const GENERIC_TOKENS = new Set(['서버', '사내', '내부']);
 
@@ -41,6 +41,17 @@ function agentRespond(text) {
     const type = has(/이행|감사|증적|조치 현황/) ? 'compliance' : has(/상세|실무/) ? 'detail' : 'exec';
     const r = call('generate_report', `type=${type}`, () => buildReport(type), x => `${x.title}, 섹션 ${x.sections.length}개`);
     return res({ text: [`'${r.title}' 생성 완료.`, r.summary], link: { href: `#report/${type}`, label: '리포트 열기' } });
+  }
+
+  if (has(/탐색|스캔|채워|자동.*(등록|확인)/)) {
+    const findings = DISCOVERY_SOURCES.flatMap(s => call(s.tool, s.name, () => runDiscovery([s.id], state.assets, state.id), r => `관측 ${r.length}건`));
+    if (!findings.length) return res({ text: ['연결 소스에서 관측된 자산 없음.'] });
+    const count = k => findings.filter(f => f.kind === k).length;
+    return res({
+      text: [`연결 소스 ${DISCOVERY_SOURCES.length}종 탐색 완료 (목업 · 읽기 전용) — 신규 ${count('신규')} · 보완 ${count('보완')} · 변경 ${count('변경')} · 일치 확인 ${count('확인')}.`,
+        '아래 근거 확인 후 승인 시 자산에 반영하고 즉시 재평가함.'],
+      discovery: findings, action: { type: 'apply-discovery', findings, label: `승인 — ${findings.length}건 반영` },
+    });
   }
 
   if (has(/(자산|장비|서버).*(등록|추가)|(등록|추가)\s*[:：]/) && !has(/업무|조치/)) {
@@ -155,4 +166,26 @@ function agentRespond(text) {
   }
 
   return res({ text: ['질의 의도를 파악하지 못함. 지원 질의 예시:', ...AGENT_EXAMPLES.map(q => `· ${q}`), '· "CVE-2026-41003 설명해줘", "KEV 연관 항목", "자산 유형별 분석", "히트맵 보여줘", "ERP DB 서버 조치 업무 만들어줘"'] });
+}
+
+// 능동 브리핑: 위협 갱신·자동 탐색 후 질의 없이 판단 변경을 요약하고 신규 긴급 항목의 조치 업무 초안 제시
+function agentBriefing(reason, s) {
+  if (!s.changes.length && !s.closed.length) return null;
+  const tools = [{ name: 'diff_assessments', args: `reason="${reason}"`, result: `판단 변경 ${s.changes.length}건` }];
+  const urgent = s.newlyUrgent.filter(a => a.status === 'active' && !state.tasks.some(t => t.key === a.key));
+  urgent.forEach(a => tools.push({ name: 'draft_tasks', args: a.key, result: `초안 ${taskTemplates(a).length}건` }));
+  const pending = state.assets.filter(a => !a.version || a.exposure === '미확인' || a.patch === '확인 필요');
+  return {
+    text: [
+      `${reason} — 판단 변경 ${s.changes.length}건.`,
+      ...s.changes.slice(0, 5).map(c => `· ${c.name}: ${c.from} → ${c.to}`),
+      ...(s.changes.length > 5 ? [`· 외 ${s.changes.length - 5}건은 이력에서 확인`] : []),
+      ...(urgent.length ? [`신규 긴급 ${urgent.length}건 — 조치 업무 초안 작성 완료. 승인 시 등록함.`] : []),
+      ...(s.closed.length ? [`대응 불필요로 바뀐 항목의 열린 조치 업무 ${s.closed.length}건 자동 종결.`] : []),
+      ...(pending.length ? [`미확인 정보가 남은 자산 ${pending.length}건 — "미확인 정보 채워줘"로 자동 확인 가능.`] : []),
+    ],
+    items: urgent, refs: [], chart: null, previewRows: null, citation: null, tools, proactive: true,
+    action: urgent.length ? { type: 'create-tasks', keys: urgent.map(a => a.key), label: `승인 — 조치 업무 생성 (${urgent.length}건)` } : null,
+    link: s.closed.length ? { href: '#tasks', label: '조치 업무 열기' } : null,
+  };
 }

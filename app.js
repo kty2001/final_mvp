@@ -17,6 +17,9 @@ let intakeText = '';
 let intakePreview = null;
 let formError = '';
 let overrideError = '';
+let formDraft = null;
+let discoveryPreview = null;
+let discoverySources = DISCOVERY_SOURCES.map(s => s.id);
 
 const pad = n => String(n).padStart(2, '0');
 function today() { const d = new Date(); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; }
@@ -64,6 +67,7 @@ function switchTenant(id) {
   store.current = id;
   state = store.tenants[id];
   chatLog = []; intakePreview = null; intakeText = ''; editingAssetId = null; formError = ''; notifOpen = false;
+  formDraft = null; discoveryPreview = null;
   save();
 }
 function initTenants() {
@@ -108,9 +112,12 @@ function allAssessments(s = state) {
 }
 
 // 재평가 후 이전 판단과 비교해 변경 이력 기록, 새로 긴급이 된 항목은 알림
+// 시스템 판정이 대응 불필요(조치 완료·영향 없음)로 바뀌면 열린 조치 업무 자동 종결
+// 반환: 브리핑용 요약 { changes, newlyUrgent, closed }
 function reassess(reason, initial = false) {
   const list = allAssessments();
-  const next = {}, fresh = [], newlyUrgent = [];
+  const next = {}, fresh = [], newlyUrgent = [], changes = [], closed = [];
+  const fmt = s => `${s.label}${s.score != null ? `(${s.score}점)` : ''}`;
   list.forEach(a => {
     const prev = state.snapshot[a.key];
     // 긴급 감지는 시스템 판정 기준 — 담당자 조정이 새 위협 신호를 가리지 않도록
@@ -119,14 +126,23 @@ function reassess(reason, initial = false) {
     const cur = { score: a.status === 'active' ? a.score : null, label: a.label, urgent, at: nowText() };
     if (!prev) fresh.push(a);
     else if (prev.score !== cur.score || prev.label !== cur.label) {
-      const fmt = s => `${s.label}${s.score != null ? `(${s.score}점)` : ''}`;
       addHistory('판단 갱신', `${a.asset.name} × ${a.vuln.id}: ${fmt(prev)} → ${fmt(cur)} — ${reason}`, a.key);
+      changes.push({ key: a.key, name: `${a.asset.name} × ${a.vuln.id}`, from: fmt(prev), to: fmt(cur) });
     } else cur.at = prev.at;
     if (!initial && urgent && !(prev && prev.urgent)) newlyUrgent.push(a);
+    const open = sys.status === 'active' ? [] : state.tasks.filter(t => t.key === a.key && t.status !== '완료');
+    open.forEach(t => { t.status = '완료'; t.checkedAt = today(); t.autoClosed = `${sys.label} — ${reason}`; });
+    if (open.length) {
+      addHistory('조치 완료', `${a.asset.name} × ${a.vuln.id}: 열린 업무 ${open.length}건 자동 종결 (${sys.label} — ${reason})`, a.key);
+      closed.push(...open);
+    }
     next[a.key] = cur;
   });
   if (initial) addHistory('최초 평가', `자산 ${state.assets.length}건 × 취약점 ${state.vulns.length}건 매칭 → 평가 ${fresh.length}건 생성`);
-  else fresh.forEach(a => addHistory('신규 평가', `${a.asset.name} × ${a.vuln.id}: ${a.label}${a.status === 'active' ? `(${a.score}점)` : ''} — ${reason}`, a.key));
+  else fresh.forEach(a => {
+    addHistory('신규 평가', `${a.asset.name} × ${a.vuln.id}: ${a.label}${a.status === 'active' ? `(${a.score}점)` : ''} — ${reason}`, a.key);
+    changes.push({ key: a.key, name: `${a.asset.name} × ${a.vuln.id}`, from: '신규', to: fmt({ label: a.label, score: a.status === 'active' ? a.score : null }) });
+  });
   state.snapshot = next;
   newlyUrgent.forEach(a => notify('긴급', `${a.asset.name} × ${a.vuln.id}`,
     `${a.system ? `시스템 판정 ${a.system.label}(${a.score}점), 담당자 조정 재검토 필요` : `${a.label}(${a.score}점)`} — ${reason}`, detailLink(a.key)));
@@ -135,6 +151,17 @@ function reassess(reason, initial = false) {
     const log = archiveReport('alert', '자동 — KEV 연관 긴급 위협 감지', kevHits.map(a => a.key));
     notify('리포트', '긴급 알림 리포트 자동 생성', `${kevHits.length}건 수록`, `#report/log-${log.id}`);
   }
+  save();
+  return { changes, newlyUrgent, closed };
+}
+
+// 에이전트가 질의 없이 먼저 올리는 브리핑 (위협 갱신·자동 탐색 반영 직후)
+function postBriefing(reason, summary) {
+  const b = agentBriefing(reason, summary);
+  if (!b) return;
+  const { items, ...rest } = b;
+  chatLog.push({ role: 'agent', ...rest, itemKeys: items.map(a => a.key) });
+  notify('브리핑', '에이전트 자동 브리핑', b.text[0], '#chat');
   save();
 }
 
@@ -159,7 +186,7 @@ function renderTopbar() {
 function onboardingCard() {
   if (!state.onboarding) return '';
   const steps = [
-    { done: state.assets.length > 0, text: '자산 등록 — 자산 관리의 일괄 등록에 문장이나 CSV 붙여넣기', href: '#assets' },
+    { done: state.assets.length > 0, text: '자산 등록 — 자산 관리의 에이전트 자동 탐색 또는 일괄 등록', href: '#assets' },
     { done: !!state.onboarding.viewedDetail, text: '첫 위협 분석 결과 확인', href: '#analysis' },
     planOf().schedule
       ? { done: Object.values(state.schedules).some(s => s.on), text: '정기 리포트 예약 설정', href: '#report' }
@@ -241,14 +268,56 @@ function intakeTable(parsed) {
   </table></div>`;
 }
 
+const KIND_CLS = { 신규: 'p-high', 보완: 'p-medium', 변경: 'p-urgent', 확인: 'p-done' };
+
+function discoveryTable(findings, selectable) {
+  return `<div class="table-wrap"><table>
+    <tr>${selectable ? '<th></th>' : ''}<th>구분</th><th>자산</th><th>내용</th><th>근거</th></tr>
+    ${findings.map((f, i) => `<tr>${selectable ? `<td><input type="checkbox" data-disc-pick="${i}" checked aria-label="${esc(f.name)} 반영"></td>` : ''}
+      <td>${badge(f.kind, KIND_CLS[f.kind])}</td><td>${esc(f.name)}</td><td>${esc(describeFinding(f))}</td>
+      <td class="muted">${esc(f.evidence)} <span class="chip">${esc(f.source)}</span></td></tr>`).join('')}
+  </table></div>`;
+}
+
+function discoveryCard() {
+  return `<div class="card">
+    <h3>에이전트 자동 탐색</h3>
+    <p class="muted">연결 소스에서 자산·버전·노출 정보를 수집해 등록 자산과 대조 — 반영은 승인 후 실행 (목업: 실제 접속 없음 · 읽기 전용 권한 전제 · 자격 증명 저장 안 함)</p>
+    ${DISCOVERY_SOURCES.map(s => `<label class="check"><input type="checkbox" data-disc-source="${s.id}" ${discoverySources.includes(s.id) ? 'checked' : ''}> <b>${esc(s.name)}</b> <span class="muted">${esc(s.scope)}</span></label>`).join('')}
+    <div class="toolbar" style="margin-top:8px"><button class="small" data-action="discover">탐색 실행</button></div>
+    ${discoveryPreview ? (discoveryPreview.length ? `${discoveryTable(discoveryPreview, true)}
+      <div class="toolbar"><button class="small" data-action="discover-apply">선택 항목 반영</button>
+        <button class="small ghost" data-action="discover-clear">취소</button></div>` : '<p class="empty">관측된 자산 없음</p>') : ''}
+  </div>`;
+}
+
+// 보완·변경은 자산에 반영, 신규는 등록 — 재평가 1회 후 브리핑
+function applyDiscovery(findings) {
+  const fresh = findings.filter(f => f.kind === '신규');
+  if (!assetRoom(fresh.length)) return { ok: false, msg: limitMsg() };
+  findings.filter(f => f.assetId).forEach(f => {
+    const a = state.assets.find(x => x.id === f.assetId);
+    if (!a) return;
+    f.changes.forEach(c => { a[c.field] = c.to; });
+    a.verified = { at: today(), source: f.source };
+    if (f.changes.length) addHistory('자동 탐색', `${a.name}: ${describeFinding(f)} (근거: ${f.evidence})`);
+  });
+  fresh.forEach(f => state.assets.push({ ...f.asset, id: `A${++state.seq}`, verified: { at: today(), source: f.source } }));
+  if (fresh.length) addHistory('자동 탐색', `미등록 자산 ${fresh.length}건 등록: ${fresh.map(f => f.name).join(', ')}`);
+  const reason = `자동 탐색 결과 반영 ${findings.length}건`;
+  postBriefing(reason, reassess(reason));
+  return { ok: true, msg: `${findings.length}건 반영` };
+}
+
 function viewAssets() {
   const list = allAssessments();
   const lim = planOf().assetLimit;
-  const e = state.assets.find(a => a.id === editingAssetId) || { criticality: '중', exposure: '미확인', patch: '미적용', type: '서버' };
+  const e = formDraft || state.assets.find(a => a.id === editingAssetId) || { criticality: '중', exposure: '미확인', patch: '미적용', type: '서버' };
   return `
     <h2>자산 관리</h2>
     <p class="sub">${esc(state.name)} · 자산 ${state.assets.length} / ${lim ?? '무제한'} (${esc(state.plan)} 플랜) · 저장 시 전체 위협 재평가</p>
     ${formError ? `<p class="error">${esc(formError)} <a href="#plans">요금제 보기</a></p>` : ''}
+    ${discoveryCard()}
     <div class="card">
       <h3>일괄 등록 (자연어·CSV)</h3>
       <p class="muted">한 줄에 자산 하나씩 문장으로 쓰거나, 첫 줄에 헤더가 있는 CSV를 붙여넣기 — 분석 결과 확인 후 등록</p>
@@ -276,8 +345,10 @@ function viewAssets() {
         <label>담당자<input name="owner" value="${esc(e.owner)}"></label>
         <div class="form-actions">
           <button type="submit">${editingAssetId ? '수정 저장' : '등록'}</button>
+          <button type="button" class="ghost" data-action="asset-autofill">자동 채우기</button>
           ${editingAssetId ? '<button type="button" class="ghost" data-action="cancel-edit">취소</button>' : ''}
         </div>
+        ${formDraft ? '<p class="muted">자동 추론값 채움 — 제품명·유형·중요도·노출·패치·담당자 (저장 전 수정 가능)</p>' : ''}
         <datalist id="productList">${PRODUCTS.map(p => `<option value="${esc(p)}">`).join('')}</datalist>
       </form>
     </div>
@@ -286,7 +357,7 @@ function viewAssets() {
       ${state.assets.length ? `<div class="table-wrap"><table>
         <tr><th>자산명</th><th>제품 / 버전</th><th>유형</th><th>중요도</th><th>외부 노출</th><th>패치</th><th>담당자</th><th>대응 필요</th><th></th></tr>
         ${state.assets.map(a => `<tr>
-          <td>${esc(a.name)}<div class="muted">${esc(a.purpose)}</div></td>
+          <td>${esc(a.name)}${a.verified ? ` <span class="chip" title="${esc(a.verified.source)}">자동 확인 ${a.verified.at.slice(5)}</span>` : ''}<div class="muted">${esc(a.purpose)}</div></td>
           <td>${esc(a.product)} ${a.version ? esc(a.version) : '<span class="muted">버전 미등록</span>'}</td>
           <td>${esc(a.type)}</td><td>${esc(a.criticality)}</td><td>${esc(a.exposure)}</td><td>${esc(a.patch)}</td><td>${esc(a.owner)}</td>
           <td class="num">${list.filter(x => x.asset.id === a.id && x.status === 'active').length}</td>
@@ -317,7 +388,7 @@ function saveAsset(form) {
     state.assets.push(asset);
     addHistory('자산 변경', `자산 등록: ${asset.name} (${asset.product} ${asset.version || '버전 미등록'})`);
   }
-  editingAssetId = null; formError = '';
+  editingAssetId = null; formError = ''; formDraft = null;
   reassess(`자산 정보 변경: ${asset.name}`);
   route();
 }
@@ -504,7 +575,9 @@ function renderMsg(m, i, byKey) {
   if (m.role === 'user') return `<div class="msg user">${esc(m.text)}</div>`;
   const items = m.itemKeys.map(k => byKey[k]).filter(Boolean);
   return `<div class="msg agent">
+    ${m.proactive ? '<div class="brief-tag">에이전트 자동 브리핑</div>' : ''}
     ${m.text.map(t => `<p>${esc(t)}</p>`).join('')}
+    ${m.discovery ? discoveryTable(m.discovery, false) : ''}
     ${m.chart ? renderChart(m.chart) : ''}
     ${m.previewRows ? intakeTable(m.previewRows) : ''}
     ${items.length ? `<ul class="items">${items.map(a => `<li>${badge(a.label, a.cls)} <a href="${detailLink(a.key)}">${esc(a.asset.name)} × ${a.vuln.id}</a> <span class="muted">${a.status === 'active' ? `${a.score}점 · 신뢰도 ${a.confidence}` : ''}</span></li>`).join('')}</ul>` : ''}
@@ -638,7 +711,8 @@ function taskTable(tasks, showTarget) {
       <td class="muted">${esc(t.reason)}</td>
       <td>${t.refs.map(r => `<span class="chip">${esc(r)}</span>`).join('')}</td>
       <td><input data-task-id="${t.id}" data-task-field="owner" value="${esc(t.owner)}" size="8"></td>
-      <td><select data-task-id="${t.id}" data-task-field="status">${['대기', '진행', '완료'].map(s => `<option ${s === t.status ? 'selected' : ''}>${s}</option>`).join('')}</select></td>
+      <td><select data-task-id="${t.id}" data-task-field="status">${['대기', '진행', '완료'].map(s => `<option ${s === t.status ? 'selected' : ''}>${s}</option>`).join('')}</select>
+        ${t.autoClosed ? `<div class="muted">자동 종결: ${esc(t.autoClosed)}</div>` : ''}</td>
       <td><input type="date" data-task-id="${t.id}" data-task-field="checkedAt" value="${esc(t.checkedAt)}"></td>
     </tr>`).join('')}
   </table></div>`;
@@ -760,10 +834,13 @@ function runSimulation() {
   Object.assign(v, u.changes, { updatedAt: today() });
   store.simStep++;
   store.feed.unshift({ time: nowText(), text: `${v.id} (${v.product}) — ${u.text}` });
+  let summary = null;
   Object.values(store.tenants).forEach(t => withTenant(t, () => {
     addHistory('위협 정보 갱신', `${v.id} (${v.product}): ${u.text}`);
-    reassess(`위협 정보 갱신: ${u.text}`);
+    const r = reassess(`위협 정보 갱신: ${u.text}`);
+    if (t.id === store.current) summary = r;
   }));
+  if (summary) postBriefing(`위협 정보 갱신: ${v.id} ${u.text}`, summary);
   route();
 }
 
@@ -810,8 +887,33 @@ document.addEventListener('click', e => {
       if (location.hash === n.link) route(); else location.hash = n.link;
       break;
     }
-    case 'edit-asset': editingAssetId = id; route(); window.scrollTo(0, 0); break;
-    case 'cancel-edit': editingAssetId = null; route(); break;
+    case 'edit-asset': editingAssetId = id; formDraft = null; route(); window.scrollTo(0, 0); break;
+    case 'cancel-edit': editingAssetId = null; formDraft = null; route(); break;
+    case 'asset-autofill': {
+      const d = Object.fromEntries([...new FormData(document.getElementById('assetForm')).entries()].map(([k, v]) => [k, String(v).trim()]));
+      const p = parseLine([d.name, d.product, d.version, d.purpose].filter(Boolean).join(' ')).asset;
+      const product = p.product || d.product;
+      formDraft = {
+        ...d, product, type: p.type, criticality: p.criticality, owner: d.owner || p.owner,
+        exposure: d.exposure === '미확인' ? p.exposure : d.exposure, patch: inferPatch(product, d.version) || d.patch,
+      };
+      route();
+      break;
+    }
+    case 'discover':
+      discoverySources = [...document.querySelectorAll('[data-disc-source]:checked')].map(x => x.dataset.discSource);
+      discoveryPreview = runDiscovery(discoverySources, state.assets, state.id);
+      route();
+      break;
+    case 'discover-clear': discoveryPreview = null; route(); break;
+    case 'discover-apply': {
+      const picked = [...document.querySelectorAll('[data-disc-pick]:checked')].map(x => discoveryPreview[Number(x.dataset.discPick)]);
+      if (!picked.length) break;
+      const r = applyDiscovery(picked);
+      if (r.ok) { discoveryPreview = null; formError = ''; } else formError = r.msg;
+      route();
+      break;
+    }
     case 'delete-asset': {
       const a = state.assets.find(x => x.id === id);
       state.assets = state.assets.filter(x => x.id !== id);
@@ -856,8 +958,12 @@ document.addEventListener('click', e => {
         const r = addAssets(m.action.assets, '대화형 자산 등록');
         m.doneText = r.ok ? `승인됨 — 자산 ${r.msg}` : r.msg;
         m.done = r.ok;
+      } else if (m.action.type === 'apply-discovery') {
+        const r = applyDiscovery(m.action.findings);
+        m.doneText = r.ok ? `승인됨 — 탐색 결과 ${r.msg}` : r.msg;
+        m.done = r.ok;
       } else {
-        const n = createTasks(m.action.key);
+        const n = (m.action.keys || [m.action.key]).reduce((sum, k) => sum + createTasks(k), 0);
         m.done = true;
         m.doneText = `승인됨 — 조치 업무 ${n}건 생성 (중복 제외)`;
       }

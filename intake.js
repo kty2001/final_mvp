@@ -40,6 +40,9 @@ function inferType(text) {
   return '서버';
 }
 
+const OWNER_BY_TYPE = { DB: 'DB 담당', '웹 애플리케이션': '웹 담당' };
+const inferOwner = type => OWNER_BY_TYPE[type] || '인프라 담당';
+
 function normExposure(v) {
   if (/^(예|y|yes|o|true|외부|공개)$/i.test(v)) return '예';
   if (/^(아니오|아니요|n|no|x|false|내부)$/i.test(v)) return '아니오';
@@ -67,7 +70,7 @@ function parseLine(line) {
     exposure: /외부|공개|인터넷|노출/.test(line) && !/내부망|비공개|미노출/.test(line) ? '예' : /내부|사내망|비공개|폐쇄/.test(line) ? '아니오' : '미확인',
     purpose: '',
     patch: /패치 완료|패치됨|최신/.test(line) ? '적용 완료' : /미적용|패치 안/.test(line) ? '미적용' : '확인 필요',
-    owner: '',
+    owner: inferOwner(inferType(line)),
   };
   return { asset, warnings: intakeWarnings(asset, !!found) };
 }
@@ -78,16 +81,17 @@ function parseCsv(lines) {
     const raw = {};
     line.split(',').forEach((v, i) => { if (fields[i]) raw[fields[i]] = v.trim(); });
     const found = findProduct(raw.product || '');
+    const type = ['서버', '네트워크 장비', 'DB', '웹 애플리케이션', '기타'].includes(raw.type) ? raw.type : inferType(`${raw.name} ${raw.product}`);
     const asset = {
       name: raw.name || `${raw.product || '미상'} 자산`,
       product: found ? found.product : raw.product || '',
       version: raw.version || '',
-      type: ['서버', '네트워크 장비', 'DB', '웹 애플리케이션', '기타'].includes(raw.type) ? raw.type : inferType(`${raw.name} ${raw.product}`),
+      type,
       criticality: ['상', '중', '하'].includes(raw.criticality) ? raw.criticality : '중',
       exposure: normExposure(raw.exposure || ''),
       purpose: raw.purpose || '',
       patch: ['미적용', '적용 완료', '확인 필요'].includes(raw.patch) ? raw.patch : '확인 필요',
-      owner: raw.owner || '',
+      owner: raw.owner || inferOwner(type),
     };
     return { asset, warnings: intakeWarnings(asset, !!found) };
   });

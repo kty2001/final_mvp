@@ -148,3 +148,28 @@ const SIM_UPDATES = [
   { cveId: 'CVE-2026-41007', changes: { kev: true, kevDate: '2026-10-17', epss: 0.81 }, text: 'CISA KEV 신규 등재, EPSS 0.35 → 0.81' },
   { cveId: 'CVE-2026-41005', changes: { cvss: 8.8, epss: 0.22 }, text: 'NVD CVSS 재평가 6.5 → 8.8, EPSS 0.03 → 0.22' },
 ];
+
+// 자동 자산 탐색 목업 결과: 연결 소스(external·server·repo)별 관측값. 실제 접속 없음
+const DISCOVERY_RESULTS = {
+  A: [
+    { source: 'external', name: '지사 방화벽', product: 'FortiOS', version: '7.2.5', exposure: '예', evidence: 'vpn-branch.example-a.co.kr:443 — SSL-VPN 로그인 페이지 배너 FortiOS v7.2.5' },
+    { source: 'external', name: '사내 CI 서버', product: 'Jenkins', version: '2.452', exposure: '예', evidence: 'ci.example-a.co.kr:8080 — Jenkins 로그인 페이지 응답 (X-Jenkins: 2.452)' },
+    { source: 'server', name: '관리용 SSH 점프 서버', product: 'OpenSSH', version: '9.9', evidence: 'jump01 읽기 전용 계정 — 설치 패키지 openssh-server 9.9p1' },
+    { source: 'server', name: '고객 포털 웹서버', product: 'Apache HTTP Server', version: '2.4.58', evidence: 'web01 읽기 전용 계정 — 설치 패키지 httpd 2.4.58' },
+    { source: 'server', name: '배치 작업 서버', product: 'Apache Tomcat', version: '9.0.85', exposure: '아니오', evidence: 'batch01 읽기 전용 계정 — /opt/tomcat RELEASE-NOTES 9.0.85, 외부 포트 미개방' },
+    { source: 'repo', name: '주문 API 컨테이너', product: 'nginx', version: '1.25.3', evidence: 'order-api 저장소 Dockerfile — FROM nginx:1.25.3' },
+  ],
+  B: [
+    { source: 'external', name: '설계 파일 서버', product: 'OpenSSH', version: '9.3', exposure: '예', evidence: 'files.example-b.co.kr:22 — SSH 배너 OpenSSH_9.3' },
+    { source: 'server', name: 'MES 서버', product: 'Apache Tomcat', version: '9.0.80', evidence: 'mes01 읽기 전용 계정 — /opt/tomcat RELEASE-NOTES 9.0.80' },
+  ],
+  C: [
+    { source: 'external', name: '물류센터 VPN', product: 'FortiOS', version: '7.2.12', exposure: '예', evidence: 'vpn-center.example-c.co.kr:443 — SSL-VPN 로그인 페이지 배너 FortiOS v7.2.12' },
+    { source: 'repo', name: '배송 알림 API', product: 'nginx', version: '1.26.2', evidence: 'notify-api 저장소 Dockerfile — FROM nginx:1.26.2' },
+  ],
+  default: [
+    { source: 'external', name: '회사 홈페이지', product: 'WordPress', version: '6.4.2', exposure: '예', evidence: 'www 도메인 — 페이지 메타 generator WordPress 6.4.2' },
+    { source: 'server', name: '사내 그룹웨어', product: 'nginx', version: '1.24.0', evidence: 'gw01 읽기 전용 계정 — 설치 패키지 nginx 1.24.0' },
+    { source: 'repo', name: '사내 업무 API', product: 'Apache Tomcat', version: '9.0.88', evidence: 'biz-api 저장소 pom.xml — tomcat-embed-core 9.0.88' },
+  ],
+};

@@ -202,3 +202,6 @@ tr.current-row td { background: #f5f8ff; }
 }
 .advisory { margin: 0 0 8px; padding: 8px 12px; border-left: 3px solid var(--line); color: var(--muted); }
 .advisory mark { background: #fff6e0; color: #9a5b00; }
+.t-브리핑 { color: #fff; background: #00796b; }
+.brief-tag { font-size: 11px; font-weight: 600; color: #00796b; margin-bottom: 4px; }
+label.check { display: block; margin: 4px 0; font-size: 13px; }
