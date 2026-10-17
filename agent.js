@@ -1,7 +1,11 @@
 // 목업 대화형 분석 에이전트: 키워드로 의도를 분류하고 기존 평가 함수를 도구로 호출함
 // 위험 점수는 규칙 엔진(engine.js) 결과를 그대로 사용, 상태 변경은 사용자 승인 후 실행
 
-const AGENT_EXAMPLES = ['지금 제일 급한 거 뭐야?', 'VPN 관련 위협 정리해줘', 'Jenkins 건은 왜 긴급이야?', '버전 확인 필요한 자산 알려줘', '이번 주 경영진 보고서 만들어줘'];
+const AGENT_EXAMPLES = [
+  '지금 제일 급한 거 뭐야?', 'VPN 관련 위협 정리해줘', 'Jenkins 건은 왜 긴급이야?', '버전 확인 필요한 자산 알려줘',
+  '등급별 위험 분포 보여줘', '지난 8주 추이 보여줘', '고객사별 현황 비교해줘',
+  '자산 등록: 영업팀 파일 서버 톰캣 9.0.90 외부 공개', '이번 주 경영진 보고서 만들어줘',
+];
 const GENERIC_TOKENS = new Set(['서버', '사내', '내부']);
 
 function findTargets(text, list) {
@@ -22,7 +26,7 @@ function reasonShort(a) {
 function agentRespond(text) {
   const tools = [];
   const call = (name, args, fn, summarize) => { const r = fn(); tools.push({ name, args, result: summarize(r) }); return r; };
-  const res = o => ({ text: [], items: [], refs: [], action: null, link: null, ...o, tools });
+  const res = o => ({ text: [], items: [], refs: [], action: null, link: null, chart: null, previewRows: null, ...o, tools });
   const refsOf = items => [...new Set(items.flatMap(a => a.facts.map(f => f.ref)))];
   const has = re => re.test(text);
   const taskAction = a => (a.status === 'active' && !state.tasks.some(t => t.key === a.key)
@@ -34,8 +38,48 @@ function agentRespond(text) {
     return res({ text: [`'${r.title}' 생성 완료.`, r.summary], link: { href: `#report/${type}`, label: '리포트 열기' } });
   }
 
+  if (has(/(자산|장비|서버).*(등록|추가)|(등록|추가)\s*[:：]/) && !has(/업무|조치/)) {
+    const body = text.includes(':') || text.includes('：') ? text.split(/[:：]/).slice(1).join(':') : text.replace(/자산|등록|추가|해줘|해 줘/g, ' ');
+    const parsed = call('parse_assets', `"${body.trim()}"`, () => parseAssets(body), r => `${r.length}건 인식`);
+    const valid = parsed.filter(p => p.asset.product);
+    if (!valid.length) return res({ text: ['제품을 인식하지 못함. 예: "자산 등록: 영업팀 파일 서버 톰캣 9.0.90 외부 공개"', `인식 가능 제품: ${PRODUCT_ALIASES.map(p => p[0]).join(', ')}`] });
+    return res({
+      text: [`자산 ${valid.length}건 인식. 아래 내용 확인 후 승인 시 등록하고 즉시 위협 매칭함.`, ...valid.flatMap(p => p.warnings.map(w => `· ${p.asset.name}: ${w}`))],
+      previewRows: valid, action: { type: 'register-assets', assets: valid.map(p => p.asset), label: `승인 — 자산 ${valid.length}건 등록` },
+    });
+  }
+
   const list = call('list_assessments', 'status=all', allAssessments, r => `${r.length}건`);
   const active = list.filter(a => a.status === 'active');
+
+  if (has(/고객사/)) {
+    const stats = call('list_tenants', '', statTenants, r => `${r.length}곳`);
+    const hot = stats.filter(s => s.urgent > 0);
+    return res({
+      text: [`담당 고객사 ${stats.length}곳 중 긴급 위협(버전 미확인 잠재 위험 포함) 보유 ${hot.length}곳.`, ...stats.map(s => `· ${s.name}(${s.industry}, ${s.plan}): 대응 필요 ${s.active}건, 긴급 ${s.urgent}건, KEV 연관 ${s.kev}건`)],
+      chart: { kind: 'bar', title: '고객사별 대응 필요 위협', unit: '건', rows: stats.map(s => ({ label: s.name, value: s.active, fill: SERIES[0], title: `${s.name}: 대응 필요 ${s.active}건 · 긴급 ${s.urgent}건` })) },
+      link: { href: '#tenants', label: '고객사 현황 열기' },
+    });
+  }
+  if (has(/분포|등급별|비율/)) {
+    const chart = call('aggregate_stats', 'metric=priority_distribution', () => statDistribution(list), r => `${r.rows.length}개 구간`);
+    const v = Object.fromEntries(chart.rows.map(r => [r.label, r.value]));
+    return res({ text: [`대응 필요 ${active.length}건 — 긴급 ${v['긴급']} · 높음 ${v['높음']} · 보통 ${v['보통']} · 낮음 ${v['낮음']}. 조치 완료 ${v['조치 완료']}건, 영향 없음·오탐 ${v['영향 없음·오탐']}건.`], chart });
+  }
+  if (has(/유형별/)) {
+    const chart = call('aggregate_stats', 'metric=by_asset_type', () => statByType(list), r => `${r.rows.length}개 유형`);
+    return res({ text: [chart.rows.length ? `대응 필요 위협이 가장 많은 자산 유형은 '${chart.rows[0].label}'(${chart.rows[0].value}건). 막대에 마우스를 올리면 평균 점수 확인 가능.` : '대응 필요 위협 없음.'], chart });
+  }
+  if (has(/추이|트렌드|주간|지난/)) {
+    const chart = call('aggregate_stats', 'metric=weekly_trend', statTrend, r => `${r.labels.length}주`);
+    const s = chart.series[0].values;
+    return res({ text: [`최근 ${s.length}주 대응 필요 위협 ${s[0]}건 → ${s[s.length - 1]}건. 이전 주차는 목업 값이며 마지막 주차만 현재 데이터.`], chart });
+  }
+  if (has(/히트맵|매트릭스|한눈에/)) {
+    const chart = call('aggregate_stats', 'metric=asset_vuln_matrix', () => statHeatmap(list), r => `${r.rows.length}×${r.cols.length}`);
+    return res({ text: [`제품이 일치한 자산 ${chart.rows.length}개 × 취약점 ${chart.cols.length}개 매트릭스. 칸을 누르면 상세 분석으로 이동.`], chart });
+  }
+
   const targets = call('match_entities', `"${text}"`, () => findTargets(text, list), r => `${r.length}건 일치`);
 
   if (has(/(업무|조치).*(생성|만들|등록)/)) {
@@ -104,5 +148,5 @@ function agentRespond(text) {
     return res({ text: [`등록 자산 ${assets.length}건 — 중요도 상 ${by('criticality', '상')} · 중 ${by('criticality', '중')} · 하 ${by('criticality', '하')}, 외부 노출 ${by('exposure', '예')}건, 노출 미확인 ${by('exposure', '미확인')}건, 버전 미등록 ${assets.filter(a => !a.version).length}건.`], link: { href: '#assets', label: '자산 관리 열기' } });
   }
 
-  return res({ text: ['질의 의도를 파악하지 못함. 지원 질의 예시:', ...AGENT_EXAMPLES.map(q => `· ${q}`), '· "CVE-2026-41003 설명해줘", "KEV 연관 항목", "ERP DB 서버 조치 업무 만들어줘"'] });
+  return res({ text: ['질의 의도를 파악하지 못함. 지원 질의 예시:', ...AGENT_EXAMPLES.map(q => `· ${q}`), '· "CVE-2026-41003 설명해줘", "KEV 연관 항목", "자산 유형별 분석", "히트맵 보여줘", "ERP DB 서버 조치 업무 만들어줘"'] });
 }

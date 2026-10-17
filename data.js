@@ -96,6 +96,48 @@ const SEED_FEED = [
   { time: '2026-10-09 08:40', text: 'CVE-2026-41001 (Apache HTTP Server) — CISA KEV 신규 등재' },
 ];
 
+// 파트너(MSP)가 관리하는 샘플 고객사. trend: 이전 7주 [대응 필요 위협, 조치 완료 업무] 목업 값
+const SEED_TENANTS = [
+  {
+    id: 'A', name: '샘플 A사', industry: 'IT 서비스', plan: '구독', assets: SEED_ASSETS,
+    trend: [[5, 1], [6, 2], [6, 0], [7, 3], [6, 1], [7, 2], [7, 1]],
+  },
+  {
+    id: 'B', name: '샘플 B사', industry: '제조 협력사', plan: '무료',
+    assets: [
+      { id: 'B1', name: 'MES 서버', product: 'Apache Tomcat', version: '9.0.80', type: '서버', criticality: '상', exposure: '아니오', purpose: '생산 관리 시스템', patch: '미적용', owner: '생산IT 담당' },
+      { id: 'B2', name: '원격 접속 VPN', product: 'FortiOS', version: '7.0.12', type: '네트워크 장비', criticality: '상', exposure: '예', purpose: '협력사·재택 원격 접속', patch: '미적용', owner: '생산IT 담당' },
+      { id: 'B3', name: '설계 파일 서버', product: 'OpenSSH', version: '9.3', type: '서버', criticality: '중', exposure: '미확인', purpose: '도면 파일 전송', patch: '미적용', owner: '생산IT 담당' },
+      { id: 'B4', name: '그룹웨어', product: 'nginx', version: '1.24.0', type: '서버', criticality: '중', exposure: '예', purpose: '사내 메일·결재', patch: '미적용', owner: '총무팀' },
+      { id: 'B5', name: '생산 DB', product: 'MySQL', version: '8.0.39', type: 'DB', criticality: '상', exposure: '아니오', purpose: '생산 실적 저장', patch: '미적용', owner: '생산IT 담당' },
+    ],
+    trend: [[3, 0], [3, 0], [4, 1], [4, 0], [5, 0], [5, 1], [5, 0]],
+  },
+  {
+    id: 'C', name: '샘플 C사', industry: '물류', plan: '구독',
+    assets: [
+      { id: 'C1', name: '배송 조회 사이트', product: 'WordPress', version: '6.4.2', type: '웹 애플리케이션', criticality: '상', exposure: '예', purpose: '고객 배송 조회', patch: '미적용', owner: '웹 담당' },
+      { id: 'C2', name: '고객 API 서버', product: 'Apache HTTP Server', version: '2.4.66', type: '서버', criticality: '상', exposure: '예', purpose: '화주사 연동 API', patch: '적용 완료', owner: '인프라 담당' },
+      { id: 'C3', name: '빌드 서버', product: 'Jenkins', version: '2.480', type: '서버', criticality: '하', exposure: '아니오', purpose: '배포 자동화', patch: '적용 완료', owner: '개발팀' },
+      { id: 'C4', name: '물류센터 VPN', product: 'FortiOS', version: '', type: '네트워크 장비', criticality: '상', exposure: '예', purpose: '센터 간 연결', patch: '확인 필요', owner: '인프라 담당' },
+    ],
+    trend: [[2, 1], [3, 1], [2, 2], [3, 0], [2, 1], [2, 1], [2, 0]],
+  },
+];
+
+// 가격은 인터뷰 지불 의향 조사로 결정 예정 — 플랜 구조만 시연
+const PLANS = [
+  { id: '무료', target: '체험·소규모', price: '무료', assetLimit: 10, schedule: false, features: ['자산 10개', 'KEV 매칭 알림', '대화형 분석', '수동 리포트 생성'] },
+  { id: '구독', target: '단일 기업', price: '가격 가설 검증 중', assetLimit: 100, schedule: true, features: ['자산 100개', '정기 리포트 예약·발송', '긴급 알림 리포트 자동 생성', '판단 수정 이력'] },
+  { id: '파트너', target: 'MSP·IT 유지보수 업체', price: '가격 가설 검증 중', assetLimit: null, schedule: true, partnerOnly: true, features: ['고객사 다중 관리', '고객사별 위험 현황 비교', '고객사별 리포트', '자산 무제한'] },
+];
+
+const DEFAULT_SCHEDULES = {
+  exec: { on: true, freq: '매주 월요일 09:00', to: 'ceo@example.com' },
+  detail: { on: false, freq: '매주 월요일 09:00', to: 'it@example.com' },
+  compliance: { on: true, freq: '매월 1일 09:00', to: 'audit@example.com' },
+};
+
 // "위협 정보 갱신 시뮬레이션" 버튼 클릭 시 순서대로 적용
 const SIM_UPDATES = [
   { cveId: 'CVE-2026-41007', changes: { kev: true, kevDate: '2026-10-17', epss: 0.81 }, text: 'CISA KEV 신규 등재, EPSS 0.35 → 0.81' },

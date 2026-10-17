@@ -4,13 +4,18 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>CTI 대응 도우미</title>
-  <link rel="stylesheet" href="styles.css?v=3">
+  <link rel="stylesheet" href="styles.css?v=6">
 </head>
 <body>
   <header class="topbar">
     <div class="brand">CTI 대응 도우미 <span class="tag">MVP</span></div>
+    <div id="tenantBox"></div>
     <div class="notice">시연용 가상 데이터 — CVE ID·점수·날짜는 실제 정보와 무관</div>
     <div class="actions">
+      <div class="bell-wrap">
+        <button id="bellBtn" class="ghost" data-action="toggle-notif">알림</button>
+        <div id="notifPanel" hidden></div>
+      </div>
       <button id="simBtn" data-action="simulate">위협 정보 갱신 시뮬레이션</button>
       <button class="ghost" data-action="reset">데모 초기화</button>
     </div>
@@ -24,13 +29,18 @@
       <a href="#tasks" data-nav="tasks">조치 업무</a>
       <a href="#report" data-nav="report">리포트</a>
       <a href="#history" data-nav="history">이력</a>
+      <div class="nav-label">파트너·계정</div>
+      <a href="#tenants" data-nav="tenants">고객사 현황</a>
+      <a href="#plans" data-nav="plans">요금제</a>
     </nav>
     <main id="view"></main>
   </div>
-  <script src="data.js?v=3"></script>
-  <script src="engine.js?v=3"></script>
-  <script src="report.js?v=3"></script>
-  <script src="agent.js?v=3"></script>
-  <script src="app.js?v=3"></script>
+  <script src="data.js?v=6"></script>
+  <script src="engine.js?v=6"></script>
+  <script src="charts.js?v=6"></script>
+  <script src="intake.js?v=6"></script>
+  <script src="report.js?v=6"></script>
+  <script src="agent.js?v=6"></script>
+  <script src="app.js?v=6"></script>
 </body>
 </html>
