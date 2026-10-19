@@ -1130,17 +1130,50 @@ function starterHeaders(platform, domain) {
     : `# .htaccess — ${domain}\nRewriteEngine On\nRewriteCond %{HTTPS} off\nRewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]\n${h.map(([k, v]) => `Header always set ${k} "${v}"`).join('\n')}`;
 }
 
+// 템플릿 적용 후 사이트 화면 목업 — 번호는 화면에 드러나는 기본값 위치
+function starterMockup(tpl, site) {
+  const pin = n => `<i class="pin">${n}</i>`;
+  const booking = tpl.id === 'booking';
+  const body = booking
+    ? `<div class="mock-box"><b>예약 가능 시간</b><div class="mock-slots"><span>10:00</span><span class="off">11:00 마감</span><span>14:00</span><span>16:00</span></div></div>`
+    : `<div class="mock-cols"><div class="mock-box"><b>소개</b><p class="mock-lines"><span></span><span></span><span class="short"></span></p></div>
+        <div class="mock-box"><b>오시는 길</b><div class="mock-map">지도·주소·영업시간</div></div></div>`;
+  const fields = booking ? ['이름', '연락처', '희망 날짜·시간', '상담 내용'] : ['이름', '연락처', '문의 내용'];
+  const legend = [
+    ['HTTPS 강제·HSTS', '자물쇠 주소로 고정 — 보안 헤더는 화면에 안 보이고 응답에 적용'],
+    ['폼 수집 동의·보관 기간', `${tpl.store} 저장 전 동의 체크, 1년 뒤 자동 삭제`],
+    ['개인정보 처리방침 초안', '하단 고정 링크 — 게시 전 법률 검토 필요'],
+    ['security.txt', '취약점 신고 연락처'],
+    ['오류 감시 등록', `접수 실패 시 ${tpl.components.find(c => c.id === 'app').name} 구성요소로 감지 → 오류 보고`],
+  ];
+  return `<div class="site-mock tpl-${tpl.id}">
+      <div class="mock-bar"><span class="mock-dots">● ● ●</span><span class="mock-url">🔒 https://${esc(site.domain)}/ ${pin(1)}</span></div>
+      <div class="mock-nav"><b>${esc(site.name)}</b><span>${booking ? '소개 · 예약 · 오시는 길' : '소개 · 오시는 길 · 문의'}</span></div>
+      <div class="mock-hero"><h4>${esc(site.name)}</h4><p>${esc(site.industry || '우리 가게')} — ${booking ? '원하는 시간에 바로 예약하세요' : '궁금한 점은 언제든 문의하세요'}</p><span class="mock-btn">${booking ? '예약하기' : '문의하기'}</span></div>
+      ${body}
+      <div class="mock-box"><b>${booking ? '예약 신청' : '문의 남기기'}</b>
+        ${fields.map(f => `<div class="mock-input${f.includes('내용') ? ' tall' : ''}">${f}</div>`).join('')}
+        <div class="mock-consent">☐ 개인정보 수집·이용 동의 (필수) — 이름·연락처, 1년 보관 후 자동 삭제 ${pin(2)}</div>
+        <span class="mock-btn">${booking ? '예약 신청' : '보내기'}</span>
+        <span class="mock-note">${booking ? '신청 즉시 예약 확인 문자·메일 발송' : '접수 시 운영자에게 알림 메일'} ${pin(5)}</span></div>
+      <div class="mock-foot">© ${esc(site.name)} · <u>개인정보 처리방침</u> <em>[초안·검토 필요]</em> ${pin(3)} · 보안 연락처 /.well-known/security.txt ${pin(4)}</div>
+    </div>
+    <ol class="mock-legend">${legend.map(([k, v]) => `<li><b>${k}</b> — ${esc(v)}</li>`).join('')}</ol>`;
+}
+
 function viewStarter() {
   const d = starterDraft;
   const tpl = d && STARTER_TEMPLATES.find(x => x.id === d.template);
   const pf = d && STARTER_PLATFORMS.find(x => x.id === d.platform);
   const s = state.site?.starter;
+  const curTpl = s && STARTER_TEMPLATES.find(x => x.name === s.template);
   const opt = (items, cur) => items.map(x => `<option value="${x.id}" ${x.id === cur ? 'selected' : ''}>${esc(x.name)}</option>`).join('');
   return `
     <h2>사이트 시작하기</h2>
     <p class="sub">업종 템플릿 + 보안·운영 기본값으로 사이트를 만들고, 배포 즉시 자산·오류 감시·할 일이 붙은 채로 시작 — 호스팅은 하지 않고 고객 소유 계정에 배포</p>
     ${s ? `<div class="card"><h3>현재 고객사: 스타터로 생성됨 ${badge('관리 연결됨', 'p-done')}</h3>
       <p>${esc(state.site.name)} · ${esc(state.site.domain)} · ${esc(s.template)} · ${esc(s.platform)} · ${esc(s.at)} 생성</p>
+      ${curTpl ? `<details><summary>생성된 사이트 화면 보기</summary>${starterMockup(curTpl, { ...state.site, industry: state.industry === '미지정' ? '' : state.industry })}</details>` : ''}
       <div class="toolbar"><a href="#todo">할 일 →</a><a href="#ops">오류 모니터링 →</a><a href="#assets">자산 →</a></div></div>` : ''}
     <div class="card">
       <h3>1. 템플릿·배포 대상 선택</h3>
@@ -1155,7 +1188,9 @@ function viewStarter() {
       <p class="muted">디자인 편집기·쇼핑몰·결제는 제공하지 않음 — 만든 뒤 관리가 핵심</p>
     </div>
     ${d ? `
-    <div class="card"><h3>2. 보안·운영 기본값 (${STARTER_DEFAULTS.length})</h3>${simpleTable({ head: ['분류', '기본값', '이유'], rows: STARTER_DEFAULTS })}</div>
+    <div class="card"><h3>2. 생성될 사이트 화면 — ${esc(tpl.name)}</h3>
+      <p class="muted">${esc(tpl.pages)} 한 페이지 구성 — 번호는 화면에 적용된 기본값 위치</p>${starterMockup(tpl, d)}</div>
+    <div class="card"><h3>3. 보안·운영 기본값 (${STARTER_DEFAULTS.length})</h3>${simpleTable({ head: ['분류', '기본값', '이유'], rows: STARTER_DEFAULTS })}</div>
     <div class="grid two">
       <div class="card"><h3>보안 헤더 설정 파일 미리보기</h3><code class="cmd" style="white-space:pre-wrap">${esc(starterHeaders(pf, d.domain))}</code>
         <p class="muted">${esc(pf.header)} 형식 — 고객 계정에 함께 배포</p></div>
