@@ -13,7 +13,7 @@ const FAULT_SIGNATURES = {
 const OPS_LOG_RATIO = { cpu: 1.8, mem: 1.6, disk: 2.6, delay: 0.55, loss: 0.5, socket: 2.2 };
 
 // 고객사 사이트별 구성요소 (없으면 기본 쇼핑몰 구성요소)
-const opsComponents = () => OPS_SITES[state.id]?.components || OPS_COMPONENTS;
+const opsComponents = () => state.site?.components || OPS_SITES[state.id]?.components || OPS_COMPONENTS;
 const opsName = id => opsComponents().find(c => c.id === id)?.name || id;
 const faultOf = id => OPS_FAULTS.find(f => f.id === id);
 const runbookOf = id => OPS_RUNBOOKS.find(r => r.id === id);

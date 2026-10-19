@@ -29,6 +29,7 @@ let condDraft = {};       // 영향 조건 확인: key → { output, result }
 let vendorDraft = {};     // 외주 업체 회신: key → { reply, parsed }
 let evidenceDraft = null; // 조치 증빙 입력: { assetId, type, text, error }
 let opsPick = { component: 'db', fault: 'socket' }; // 오류 리포팅: 오류 시뮬레이션 선택값
+let starterDraft = null;  // 사이트 시작하기: 배포 전 미리보기 입력값
 
 const pad = n => String(n).padStart(2, '0');
 const ymd = d => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
@@ -86,7 +87,7 @@ function switchTenant(id) {
   chatLog = []; intakePreview = null; intakeText = ''; editingAssetId = null; formError = ''; notifOpen = false;
   formDraft = null; discoveryPreview = null;
   auditFormId = null; krPreview = null; scanText = ''; scanPreview = null; condDraft = {}; vendorDraft = {}; evidenceDraft = null;
-  opsPick = { component: 'db', fault: 'socket' };
+  opsPick = { component: 'db', fault: 'socket' }; starterDraft = null;
   save();
 }
 function initTenants() {
@@ -1114,6 +1115,91 @@ function addTenant(form) {
   route();
 }
 
+// ---------- 화면: 사이트 시작하기 (운영 기본값 스타터, 기획안 5-7) ----------
+function starterHeaders(platform, domain) {
+  const h = [
+    ['Strict-Transport-Security', 'max-age=31536000; includeSubDomains'],
+    ['Content-Security-Policy-Report-Only', "default-src 'self'; img-src 'self' data:; frame-ancestors 'none'"],
+    ['X-Frame-Options', 'DENY'],
+    ['X-Content-Type-Options', 'nosniff'],
+    ['Referrer-Policy', 'strict-origin-when-cross-origin'],
+    ['Permissions-Policy', 'camera=(), microphone=(), geolocation=()'],
+  ];
+  return platform.header === '_headers'
+    ? `# _headers — ${domain}\n/*\n${h.map(([k, v]) => `  ${k}: ${v}`).join('\n')}`
+    : `# .htaccess — ${domain}\nRewriteEngine On\nRewriteCond %{HTTPS} off\nRewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]\n${h.map(([k, v]) => `Header always set ${k} "${v}"`).join('\n')}`;
+}
+
+function viewStarter() {
+  const d = starterDraft;
+  const tpl = d && STARTER_TEMPLATES.find(x => x.id === d.template);
+  const pf = d && STARTER_PLATFORMS.find(x => x.id === d.platform);
+  const s = state.site?.starter;
+  const opt = (items, cur) => items.map(x => `<option value="${x.id}" ${x.id === cur ? 'selected' : ''}>${esc(x.name)}</option>`).join('');
+  return `
+    <h2>사이트 시작하기</h2>
+    <p class="sub">업종 템플릿 + 보안·운영 기본값으로 사이트를 만들고, 배포 즉시 자산·오류 감시·할 일이 붙은 채로 시작 — 호스팅은 하지 않고 고객 소유 계정에 배포</p>
+    ${s ? `<div class="card"><h3>현재 고객사: 스타터로 생성됨 ${badge('관리 연결됨', 'p-done')}</h3>
+      <p>${esc(state.site.name)} · ${esc(state.site.domain)} · ${esc(s.template)} · ${esc(s.platform)} · ${esc(s.at)} 생성</p>
+      <div class="toolbar"><a href="#todo">할 일 →</a><a href="#ops">오류 모니터링 →</a><a href="#assets">자산 →</a></div></div>` : ''}
+    <div class="card">
+      <h3>1. 템플릿·배포 대상 선택</h3>
+      <form id="starterForm" class="asset-form">
+        <label>사이트 이름 *<input name="name" required value="${esc(d?.name || '')}" placeholder="예: 한빛 공방"></label>
+        <label>도메인 *<input name="domain" required value="${esc(d?.domain || '')}" placeholder="예: hanbit-craft.kr"></label>
+        <label>업종<input name="industry" value="${esc(d?.industry || '')}" placeholder="예: 공방·교육"></label>
+        <label>업종 템플릿<select name="template">${opt(STARTER_TEMPLATES, d?.template)}</select></label>
+        <label>배포 대상<select name="platform">${opt(STARTER_PLATFORMS, d?.platform)}</select></label>
+        <div class="form-actions"><button type="submit">기본값 미리보기</button></div>
+      </form>
+      <p class="muted">디자인 편집기·쇼핑몰·결제는 제공하지 않음 — 만든 뒤 관리가 핵심</p>
+    </div>
+    ${d ? `
+    <div class="card"><h3>2. 보안·운영 기본값 (${STARTER_DEFAULTS.length})</h3>${simpleTable({ head: ['분류', '기본값', '이유'], rows: STARTER_DEFAULTS })}</div>
+    <div class="grid two">
+      <div class="card"><h3>보안 헤더 설정 파일 미리보기</h3><code class="cmd" style="white-space:pre-wrap">${esc(starterHeaders(pf, d.domain))}</code>
+        <p class="muted">${esc(pf.header)} 형식 — 고객 계정에 함께 배포</p></div>
+      <div class="card"><h3>배포 후 자동 등록</h3>
+        <p><b>자산</b>: ${esc(d.name)} 사이트 (${esc(pf.product)}), ${esc(tpl.store)}</p>
+        <p><b>오류 감시 구성요소</b>: ${tpl.components.map(c => esc(c.name)).join(' · ')}</p>
+        <p><b>첫 할 일</b></p><ul class="plain">${STARTER_TASKS.map(t => `<li>${esc(t.title)} <span class="muted">— ${esc(t.reason)}</span></li>`).join('')}</ul></div>
+    </div>
+    <div class="card"><div class="toolbar" style="margin:0">
+      <button data-action="starter-deploy">승인 — 고객 계정에 배포 (시뮬레이션)</button>
+      <button class="ghost" data-action="starter-clear">취소</button>
+      <span class="muted">실제 생성·배포 없음 — 새 고객사로 등록 후 할 일 홈으로 이동</span></div></div>` : ''}`;
+}
+
+// 배포 승인: 새 고객사 생성 → 자산·구성요소·첫 할 일 등록 (생성 시점 자산 자동 등록 → 분석 → 리포팅)
+function createStarterSite() {
+  const d = starterDraft;
+  const tpl = STARTER_TEMPLATES.find(x => x.id === d.template);
+  const pf = STARTER_PLATFORMS.find(x => x.id === d.platform);
+  const id = `T${Object.keys(store.tenants).length + 1}`;
+  const verified = { at: today(), source: '사이트 스타터' };
+  const t = seedTenant({
+    id, name: d.name, industry: d.industry || '미지정', plan: '무료',
+    profile: { ...DEFAULT_PROFILE, employees: 5, personalInfo: true },
+    assets: [
+      { id: `${id}-1`, name: `${d.name} 사이트`, product: pf.product, version: '', type: '웹 애플리케이션', criticality: '상', exposure: '예', purpose: `${tpl.name} — ${d.domain}`, patch: '적용 완료', owner: '운영자', maintainer: `고객 소유 계정: ${pf.name}`, verified },
+      { id: `${id}-2`, name: tpl.store, product: pf.product, version: '', type: 'DB', criticality: '상', exposure: '아니오', purpose: `${tpl.pages} 데이터 (개인정보)`, patch: '적용 완료', owner: '운영자', maintainer: `고객 소유 계정: ${pf.name}`, verified },
+    ],
+    trend: Array.from({ length: 7 }, () => [0, 0]),
+    schedules: Object.fromEntries(Object.entries(DEFAULT_SCHEDULES).map(([k, s]) => [k, { ...s, on: false }])),
+  });
+  t.site = { name: d.name, domain: d.domain, components: tpl.components, starter: { template: tpl.name, platform: pf.name, at: today() } };
+  t.vulns = store.vulns; t.feed = store.feed;
+  store.tenants[id] = t;
+  switchTenant(id);
+  addHistory('사이트 생성', `${d.domain}: ${tpl.name} 템플릿, ${pf.name} 배포(시뮬레이션) — 기본값 ${STARTER_DEFAULTS.length}종 적용, 자산 2건·구성요소 ${tpl.components.length}개 자동 등록`);
+  STARTER_TASKS.forEach(x => addExtraTask({ kind: 'starter', key: `starter|${x.code}`, assetName: `${d.name} 사이트`, cveId: x.code,
+    title: x.title, reason: x.reason, refs: ['사이트 스타터'], link: '#starter' }));
+  notify('브리핑', `${d.name} 사이트 배포 완료(시뮬레이션)`, `관리 연결 — 첫 할 일 ${STARTER_TASKS.length}건 등록`, '#todo');
+  save();
+  location.hash = '#todo';
+  route();
+}
+
 // ---------- 화면: 내 사이트 적용 점검 (사용자 소유 실사이트 2곳) ----------
 const MYSITE_CLS = { 가능: 'p-done', 부분: 'p-medium', '해당 없음': 'p-none' };
 const MYSITE_STEPS = [
@@ -1295,7 +1381,7 @@ function viewPlans() {
 }
 
 // ---------- 자동 오류 리포팅 ----------
-const opsSite = () => OPS_SITES[state.id] || { name: '사이트', domain: `${state.name} 사이트` };
+const opsSite = () => state.site || OPS_SITES[state.id] ||{ name: '사이트', domain: `${state.name} 사이트` };
 const opsOpen = inc => state.tasks.some(t => t.key === `ops|${inc.id}` && t.status !== '완료');
 const OPS_STATUS_CLS = { '원인 후보': 'p-urgent', 이상: 'p-high', 주의: 'p-medium', 정상: 'p-done' };
 
@@ -1423,7 +1509,7 @@ function route() {
   const views = {
     todo: viewTodo, dashboard: viewDashboard, chat: viewChat, assets: viewAssets, analysis: p => (p ? viewDetail(p) : viewAnalysis()),
     tasks: viewTasks, report: viewReport, history: viewHistory, tenants: viewTenants, plans: viewPlans,
-    audit: viewAudit, incident: viewIncident, ops: viewOps, mysite: viewMySite,
+    audit: viewAudit, incident: viewIncident, ops: viewOps, mysite: viewMySite, starter: viewStarter,
   };
   $view.innerHTML = (views[view] || viewTodo)(param && decodeURIComponent(param));
   document.querySelectorAll('[data-nav]').forEach(a => a.classList.toggle('active', a.dataset.nav === (views[view] ? view : 'todo')));
@@ -1560,6 +1646,8 @@ document.addEventListener('click', e => {
     }
     case 'run-schedules': runSchedules(); break;
     case 'switch-tenant': switchTenant(id); location.hash = '#todo'; route(); break;
+    case 'starter-deploy': if (starterDraft) createStarterSite(); break;
+    case 'starter-clear': starterDraft = null; route(); break;
     case 'mysite-demo': {
       const [tid, view] = id.split('|');
       if (!store.tenants[tid]) break;
@@ -1766,6 +1854,10 @@ document.addEventListener('submit', e => {
   else if (e.target.id === 'tenantForm') addTenant(new FormData(e.target));
   else if (e.target.id === 'incidentForm') startIncident(new FormData(e.target));
   else if (e.target.id === 'profileForm') saveProfile(new FormData(e.target));
+  else if (e.target.id === 'starterForm') {
+    starterDraft = Object.fromEntries([...new FormData(e.target).entries()].map(([k, v]) => [k, String(v).trim()]));
+    route();
+  }
 });
 
 window.addEventListener('hashchange', route);

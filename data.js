@@ -528,3 +528,49 @@ const OPS_LOG_TEMPLATES = {
   loss: ['ERROR connection reset by peer', 'ERROR upstream 502 Bad Gateway', 'WARN retry <:NUM:>/3'],
   socket: ['ERROR DB connection pool exhausted', 'ERROR cannot acquire connection within 3000ms', 'WARN too many open connections'],
 };
+
+// ---------- 사이트 시작하기 (운영 기본값 스타터, 기획안 5-7) — 실제 생성·배포 없음 ----------
+
+// 업종 템플릿 2종. components id web·app·db는 오류 전파 규칙 호환용으로 유지
+const STARTER_TEMPLATES = [
+  { id: 'intro', name: '회사·가게 소개 + 문의 폼', pages: '소개·위치·문의 접수', store: '문의 저장소', components: [
+    { id: 'web', name: '소개 페이지', desc: '소개·위치 안내 화면', callers: [] },
+    { id: 'app', name: '문의 처리', desc: '문의 폼 접수·검증', callers: ['web'] },
+    { id: 'db', name: '문의 저장소', desc: '문의 내용·연락처 (개인정보)', callers: ['app'] },
+    { id: 'mail', name: '문의 알림 메일', desc: '접수 시 운영자에게 메일 발송', callers: ['app'] },
+    { id: 'cdn', name: '정적 자산', desc: '이미지·폰트·스타일', callers: ['web'] },
+  ] },
+  { id: 'booking', name: '예약·상담 신청형', pages: '소개·예약 신청·알림', store: '예약 저장소', components: [
+    { id: 'web', name: '예약 화면', desc: '소개·예약 가능 시간 표시', callers: [] },
+    { id: 'app', name: '예약 처리', desc: '예약 신청 접수·중복 확인', callers: ['web'] },
+    { id: 'db', name: '예약 저장소', desc: '예약자 이름·연락처 (개인정보)', callers: ['app'] },
+    { id: 'notify', name: '예약 알림', desc: '예약 확인 문자·메일 발송', callers: ['app'] },
+    { id: 'cdn', name: '정적 자산', desc: '이미지·폰트·스타일', callers: ['web'] },
+  ] },
+];
+
+// 배포 대상: 고객 소유 계정 (호스팅하지 않음). header: 보안 헤더 설정 파일 형식
+const STARTER_PLATFORMS = [
+  { id: 'cloudflare', name: 'Cloudflare Pages (고객 계정)', product: 'Cloudflare Pages', header: '_headers' },
+  { id: 'cafe24', name: '카페24 호스팅 (고객 계정)', product: '카페24 호스팅', header: '.htaccess' },
+];
+
+// 보안·운영 기본값: [분류, 기본값, 쉬운 말 이유]
+const STARTER_DEFAULTS = [
+  ['전송 보안', 'HTTPS 강제·HSTS', '주소창 자물쇠 고정 — 중간에서 엿보기 차단'],
+  ['보안 헤더', 'CSP (보고 전용 모드로 시작)', '허용하지 않은 스크립트 감지 — 처음엔 막지 않고 기록만 해서 사이트 기능 장애 방지'],
+  ['보안 헤더', '클릭재킹 방지·nosniff·Referrer-Policy', '다른 사이트가 우리 화면을 몰래 끼워 넣거나 파일을 잘못 해석하는 것 방지'],
+  ['외부 리소스', 'SRI 적용', '외부 폰트·스크립트가 바뀌면 불러오지 않음'],
+  ['공개 정보', 'security.txt 보안 연락처', '취약점을 발견한 사람이 연락할 곳'],
+  ['개인정보', '폼 수집 동의·보관 기간', '문의·예약 받을 때 필요한 동의 문구와 자동 삭제 기간'],
+  ['개인정보', '개인정보 처리방침 초안 [법률 검토 필요]', '수집 항목·보관 기간을 반영한 초안 — 게시 전 검토 필요'],
+  ['운영', '백업 설정 안내·오류 감시 등록', '배포 즉시 오류 모니터링 구성요소로 등록, 플랫폼별 백업 방법 안내'],
+];
+
+// 배포 직후 첫 할 일 (남은 설정)
+const STARTER_TASKS = [
+  { code: 'ST-BACKUP', title: '백업 설정 확인', reason: '플랫폼 자동 백업은 고객 계정에서 직접 켜야 함' },
+  { code: 'ST-PRIVACY', title: '개인정보 처리방침 초안 검토 후 게시', reason: '초안 상태 — 법률 검토 필요' },
+  { code: 'ST-RETENTION', title: '문의·예약 데이터 보관 기간 확인', reason: '기본값 1년 — 업종 기준과 맞는지 확인' },
+  { code: 'ST-CSP', title: 'CSP 보고 전용 → 차단 모드 전환 검토', reason: '2주간 위반 기록 확인 후 전환' },
+];
