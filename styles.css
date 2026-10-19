@@ -221,3 +221,9 @@ label.check { display: block; margin: 4px 0; font-size: 13px; }
 .cmd { display: block; margin: 0 0 6px; padding: 6px 10px; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; font: 12px/1.5 Consolas, ui-monospace, monospace; white-space: pre-wrap; word-break: break-all; }
 .evidence { margin: 8px 0; padding: 10px 12px; border: 1px dashed var(--line); border-radius: 8px; }
 .evidence textarea, .card textarea[data-cond-output], .card textarea[data-vendor-reply] { width: 100%; margin-top: 6px; }
+
+/* 오류 리포팅 */
+.t-오류 { color: #fff; background: #ad1457; }
+.ops-msg { padding: 10px 12px; background: #f8f9fc; border-left: 4px solid var(--urgent); border-radius: 6px; white-space: pre-wrap; font-size: 13px; line-height: 1.6; }
+tr.current td { background: #eef3ff; }
+details + details { margin-top: 8px; }

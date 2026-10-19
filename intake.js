@@ -12,6 +12,7 @@ const PRODUCT_ALIASES = [
   ['OpenSSH', ['openssh', 'ssh']],
   ['하늘그룹웨어', ['하늘그룹웨어']],
   ['누리ERP', ['누리erp', '누리 erp']],
+  ['React', ['react', '리액트']],
 ];
 
 const CSV_HEADERS = {

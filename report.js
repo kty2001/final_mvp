@@ -2,9 +2,9 @@
 
 const REPORT_TYPES = {
   exec: '경영진 요약 보고서', detail: '실무자 상세 보고서', compliance: '조치 이행 보고서', alert: '긴급 알림 리포트',
-  audit: '점검 양식 제출본', support: '지원사업 신청 자료',
+  audit: '점검 양식 제출본', support: '지원사업 신청 자료', error: '오류 보고서',
 };
-const REPORT_TABS = ['exec', 'detail', 'compliance', 'alert'];
+const REPORT_TABS = ['exec', 'detail', 'compliance', 'alert', 'error'];
 
 // 완료 업무의 평균 소요일 (생성일 → 확인 일자)
 function avgTaskDays(tasks) {
@@ -12,7 +12,34 @@ function avgTaskDays(tasks) {
   return done.length ? done.reduce((s, t) => s + Math.max(0, daysBetween(t.createdAt, t.checkedAt)), 0) / done.length : null;
 }
 
-// keys: 긴급 알림은 평가 항목 key 목록, audit은 양식 id, support는 사업 id
+// 오류 보고서 (팀원 template_report 7섹션) — 사실 JSON만 사용, 미확인 주장은 추정 표기, 데이터에 없는 항목은 [확인 필요]
+function opsReport(base, id) {
+  const inc = (id && state.opsIncidents.find(i => i.id === id)) || state.opsIncidents[0];
+  if (!inc) return { ...base, summary: '감지된 사이트 오류 없음.', sections: [{ heading: '오류 개요', paragraphs: ['감지된 사이트 오류 없음. 오류 모니터링 화면에서 오류 시뮬레이션 가능.'] }] };
+  const f = inc.facts, top = f.원인_후보[0], rb = runbookOf(f.참고_런북[0].id);
+  const ok = opsVerified(f), sure = f.검증[0].판정 === '확인' && f.검증[1].판정 === '확인';
+  const mark = c => (c.판정 === '확인' ? c.주장 : `${c.주장} — 추정, 추가 확인 필요`);
+  return {
+    ...base, title: `${REPORT_TYPES.error} — ${inc.site}`, scope: `${inc.site} · 구성요소 ${opsComponents().length}개 지표·로그 기준`,
+    summary: `${top.서비스}에서 ${f.추정_장애유형} ${sure ? '추정' : '추정(추가 확인 필요)'} 오류 감지 (${f.장애_감지_시각}). 근거 검증 ${ok}/${f.검증.length} 확인.`,
+    sections: [
+      { heading: '1. 오류 개요', paragraphs: [`${inc.site}의 ${top.서비스}에서 ${f.추정_장애유형} 추정 오류 감지.${sure ? '' : ' 원인 후보 판단은 추정이며 추가 확인 필요.'}`] },
+      { heading: '2. 타임라인', bullets: [`${inc.startedAt} — 지표 변화 시작 (추정)`, `${f.장애_감지_시각} — 지표 이상 감지 (탐지 에이전트), 메신저 알림·보고서 초안 자동 생성`, '[확인 필요] — 담당자 인지 / 조치 시작 / 복구 완료'] },
+      { heading: '3. 영향 범위', bullets: [`원인 후보: ${f.원인_후보.map(c => `${c.서비스}(${c.점수})`).join(', ')}`, '이용자 영향 규모(주문·결제 실패 건수 등): [확인 필요]'] },
+      { heading: '4. 원인 분석', bullets: [
+        ...f.근거_지표.map(m => `${m.지표} 최대 z = ${m.최대z}`),
+        ...(f.로그 === '없음' ? [] : [`경고·오류 로그 ${f.로그.경고에러_줄수}줄, 신규 패턴: ${f.로그.새_로그_예시.join(' / ')}`]),
+        ...f.검증.filter(c => c.판정 !== '확인').map(mark),
+      ], table: { head: ['주장', '근거', '판정'], rows: f.검증.map(c => [c.주장, c.근거, c.판정]) } },
+      { heading: `5. 조치 내역(권장, ${rb.id})`, bullets: [`즉시 조치: ${rb.action}`, `1차 확인: ${rb.check}`, '실제 조치 내역: [확인 필요]'] },
+      { heading: `6. 재발 방지 대책(${rb.id})`, bullets: [rb.prevent] },
+      { heading: '7. 이용자 고지문(초안)', paragraphs: [`안녕하세요, ${state.name}입니다. ${inc.startedAt.slice(11)}경부터 ${inc.site} 일부 기능이 느려지거나 이용이 원활하지 않은 문제가 있었습니다. 이용에 불편을 드려 죄송합니다. 원인은 내부 시스템의 일시적인 문제로 파악하고 있으며, 현재 [조치 상태 확인 필요]입니다. 같은 문제가 반복되지 않도록 점검을 강화하겠습니다. 문의: [고객센터 연락처 확인 필요]`] },
+      { heading: '비고', paragraphs: ['본 보고서는 지표·로그·런북 기반으로 자동 생성된 초안이며 담당자 검토·승인 후 공유. 지표·로그는 시연용 합성 데이터.'] },
+    ],
+  };
+}
+
+// keys: 긴급 알림은 평가 항목 key 목록, audit은 양식 id, support는 사업 id, error는 오류 id
 function buildReport(type, keys) {
   const list = allAssessments();
   const active = list.filter(a => a.status === 'active');
@@ -20,6 +47,8 @@ function buildReport(type, keys) {
   const done = tasks.filter(t => t.status === '완료').length;
   const progress = tasks.length ? Math.round((done / tasks.length) * 100) : 0;
   const base = { type, title: REPORT_TYPES[type], generatedAt: nowText(), scope: `자산 ${state.assets.length}건 · 취약점 ${state.vulns.length}건 기준` };
+
+  if (type === 'error') return opsReport(base, keys);
 
   if (type === 'alert') {
     const items = keys ? list.filter(a => keys.includes(a.key)) : active.filter(a => a.priority === '긴급' && a.vuln.kev);
@@ -124,11 +153,13 @@ function buildReport(type, keys) {
   const decisions = decisionRequests(list);
   const bench = BENCHMARK[state.industry] || BENCHMARK.default;
   const ownDays = avgTaskDays(tasks);
+  const opsPending = state.opsIncidents.filter(opsOpen);
   const conclusion = [
     urgent.length ? `긴급 ${urgent.length}건(${urgent.join(', ')})은 즉시 조치 검토 필요.` : '긴급 항목 없음.',
     unsure ? `정보 미확인으로 판단 신뢰도가 낮거나 중간인 ${unsure}건은 자산 정보 보완 후 재평가 필요.` : '',
     tasks.length ? `조치 업무 진행률 ${progress}%.` : '등록된 조치 업무 없음.',
     decisions.filter(d => !d.reply).length ? `대표 결정 요청 ${decisions.filter(d => !d.reply).length}건 회신 필요.` : '',
+    opsPending.length ? `사이트 오류 ${opsPending.length}건 조치 대기.` : '',
   ].filter(Boolean).join(' ');
   return {
     ...base,
@@ -151,6 +182,10 @@ function buildReport(type, keys) {
           ['할 일 처리율', tasks.length ? `${progress}%` : '-', `${bench.progress}%`],
           ['평균 조치 소요일', ownDays == null ? '-' : `${ownDays.toFixed(1)}일`, `${bench.days.toFixed(1)}일`],
         ] } },
+      { heading: '사이트 운영 현황', ...(state.opsIncidents.length
+        ? { paragraphs: [`자동 감지 오류 ${state.opsIncidents.length}건 · 조치 대기 ${opsPending.length}건.`],
+          table: { head: ['감지 시각', '원인 후보', '추정 유형', '근거 검증', '상태'], rows: state.opsIncidents.slice(0, 3).map(i => [i.facts.장애_감지_시각, i.facts.원인_후보[0].서비스, i.facts.추정_장애유형, `${opsVerified(i.facts)}/${i.facts.검증.length} 확인`, opsOpen(i) ? '조치 대기' : '조치 완료']) } }
+        : { paragraphs: ['감지된 사이트 오류 없음.'] }) },
       { heading: '최근 위협 정보 변경', bullets: state.feed.slice(0, 3).map(f => `${f.time} ${f.text}`) },
     ],
   };

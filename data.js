@@ -75,6 +75,15 @@ const VULNS = [
     vendorUrl: 'https://tomcat.apache.org/security-9.html',
     attack: { id: 'T1190', name: 'Exploit Public-Facing Application' },
   },
+  {
+    id: 'CVE-2026-41009', product: 'React', title: '속성 값 처리 결함으로 인한 DOM 기반 XSS (가상)',
+    affected: { from: '19.0.0', fixed: '19.3.1' }, cvss: 7.6, epss: 0.18, kev: false,
+    published: '2026-10-16', updatedAt: '2026-10-16',
+    summary: '사용자 입력이 특정 속성 값으로 렌더링될 때 검증 누락으로 방문자 브라우저에서 스크립트 실행 가능 (실사이트 시연용 가상 취약점)',
+    mitigation: 'CSP(Content-Security-Policy)로 인라인 스크립트 실행 차단, 사용자 입력 URL 속성 검증',
+    vendorUrl: 'https://react.dev/blog',
+    attack: { id: 'T1189', name: 'Drive-by Compromise' },
+  },
 ];
 
 // 공급업체 권고문 원문(외부 텍스트) 샘플. 숨은 지시 문장은 프롬프트 인젝션 방어 시연용
@@ -96,6 +105,7 @@ const SEED_ASSETS = [
 ];
 
 const SEED_FEED = [
+  { time: '2026-10-16 11:00', text: 'CVE-2026-41009 (React) — NVD 신규 공개 (가상)' },
   { time: '2026-10-15 10:20', text: 'CVE-2026-41008 (Apache Tomcat) — NVD 신규 공개' },
   { time: '2026-10-12 09:05', text: 'CVE-2026-41003 (FortiOS) — CISA KEV 신규 등재' },
   { time: '2026-10-10 14:30', text: 'CVE-2026-41007 (Jenkins) — NVD 신규 공개, 공급업체 권고문 발행' },
@@ -132,6 +142,27 @@ const SEED_TENANTS = [
       { id: 'C4', name: '물류센터 VPN', product: 'FortiOS', version: '', type: '네트워크 장비', criticality: '상', exposure: '예', purpose: '센터 간 연결', patch: '확인 필요', owner: '인프라 담당' },
     ],
     trend: [[2, 1], [3, 1], [2, 2], [3, 0], [2, 1], [2, 1], [2, 0]],
+  },
+  // 사용자 소유 실사이트 (2026-10-19 읽기 전용 관측 기반). 위협 정보는 가상 CVE-2026-41009만 해당
+  {
+    id: 'ANI', name: '애니 시맨틀', industry: '웹 서비스(게임·콘텐츠)', plan: '무료',
+    profile: { employees: 1, region: '미지정', personalInfo: false, primeContractor: false, isms: false, disclosure: false },
+    assets: [
+      { id: 'ANI1', name: '애니 시맨틀 게임 페이지', product: 'Cloudflare (Pages/Workers)', version: '', type: '웹 애플리케이션', criticality: '상', exposure: '예', purpose: '일일 애니 추측 게임·분석 글 (ko·en)', patch: '적용 완료', owner: '운영자(1인)', maintainer: '플랫폼 자동 관리: Cloudflare' },
+      { id: 'ANI2', name: '게임 API', product: 'Cloudflare Functions', version: '', type: '서버', criticality: '중', exposure: '예', purpose: '/api/event 기록·/api/stats 일일 통계', patch: '적용 완료', owner: '운영자(1인)', maintainer: '플랫폼 자동 관리: Cloudflare' },
+    ],
+    trend: [[0, 0], [0, 0], [0, 0], [0, 0], [0, 0], [0, 0], [0, 0]],
+  },
+  {
+    id: 'WN', name: 'WhiteNoard', industry: '웹 서비스(SaaS)', plan: '무료',
+    profile: { employees: 1, region: '미지정', personalInfo: true, primeContractor: false, isms: false, disclosure: false },
+    assets: [
+      { id: 'WN1', name: 'WhiteNoard 웹앱', product: 'React', version: '', type: '웹 애플리케이션', criticality: '상', exposure: '예', purpose: '창작 설정(위키·사건) 관리 SPA (Vite 빌드)', patch: '확인 필요', owner: '운영자(1인)' },
+      { id: 'WN2', name: '동기화 API', product: 'Cloudflare Workers', version: '', type: '서버', criticality: '상', exposure: '예', purpose: '/api/sync pull·push·reset — 사용자 데이터 동기화', patch: '적용 완료', owner: '운영자(1인)', maintainer: '플랫폼 자동 관리: Cloudflare' },
+      { id: 'WN3', name: 'Google 로그인', product: 'Google OAuth 2.0', version: '', type: '기타', criticality: '상', exposure: '예', purpose: '/api/auth — 이메일·프로필 수집', patch: '적용 완료', owner: '운영자(1인)', maintainer: '외부 서비스: Google' },
+      { id: 'WN4', name: '사용자 데이터 저장소', product: 'Cloudflare D1 (추정)', version: '', type: 'DB', criticality: '상', exposure: '아니오', purpose: '사용자 문서·동기화 데이터 [저장소 종류 확인 필요]', patch: '적용 완료', owner: '운영자(1인)', maintainer: '플랫폼 자동 관리: Cloudflare' },
+    ],
+    trend: [[0, 0], [0, 0], [0, 0], [0, 0], [0, 0], [0, 0], [0, 0]],
   },
 ];
 
@@ -171,6 +202,17 @@ const DISCOVERY_RESULTS = {
   C: [
     { source: 'external', name: '물류센터 VPN', product: 'FortiOS', version: '7.2.12', exposure: '예', evidence: 'vpn-center.example-c.co.kr:443 — SSL-VPN 로그인 페이지 배너 FortiOS v7.2.12' },
     { source: 'repo', name: '배송 알림 API', product: 'nginx', version: '1.26.2', evidence: 'notify-api 저장소 Dockerfile — FROM nginx:1.26.2' },
+  ],
+  // 실사이트: 2026-10-19 실제 관측값 (서버리스라 server 소스 없음, 저장소 미연결)
+  ANI: [
+    { source: 'external', name: '애니 시맨틀 게임 페이지', product: 'Cloudflare (Pages/Workers)', exposure: '예', evidence: 'anisemantle.com:443 — 응답 헤더 Server: cloudflare, CF-Cache-Status: HIT, HTTP→HTTPS 301' },
+    { source: 'external', name: '게임 API', product: 'Cloudflare Functions', exposure: '예', evidence: 'anisemantle.com/api/stats 200 공개 JSON (date·plays·solves·giveups), /api/event GET 405 (POST 전용)' },
+    { source: 'external', name: '광고·분석 스크립트', product: 'Google Tag Manager·AdSense', exposure: '예', evidence: 'anisemantle.com HTML — googletagmanager.com/gtm.js, pagead2.googlesyndication.com/adsbygoogle.js 로드' },
+  ],
+  WN: [
+    { source: 'external', name: 'WhiteNoard 웹앱', product: 'React', version: '19.3.0', exposure: '예', evidence: 'whitenoard.tyoujungzz.workers.dev — /assets/index-Dgy_R8mi.js 번들 내 React 19.3.0 버전 문자열' },
+    { source: 'external', name: 'Google 로그인', product: 'Google OAuth 2.0', exposure: '예', evidence: '/api/auth/login 302 → accounts.google.com (PKCE S256, scope openid email profile), 쿠키 HttpOnly·Secure·SameSite=Lax' },
+    { source: 'external', name: '외부 폰트 CDN', product: 'jsDelivr (Pretendard)', version: '1.3.9', exposure: '예', evidence: 'index.html — cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9 CSS, integrity(SRI) 속성 없음' },
   ],
   default: [
     { source: 'external', name: '회사 홈페이지', product: 'WordPress', version: '6.4.2', exposure: '예', evidence: 'www 도메인 — 페이지 메타 generator WordPress 6.4.2' },
@@ -306,6 +348,9 @@ const SUPPORT_PROGRAMS = [
 const SCAN_SAMPLES = {
   care: { label: '내서버돌보미·점검 스크립트', text: '호스트,자산명,제품,버전,점검 항목,결과\n10.0.1.11,고객 포털 웹서버,아파치,2.4.58,U-01 root 계정 원격 접속 제한,양호\n10.0.1.31,관리용 SSH 점프 서버,OpenSSH,9.6,U-01 root 계정 원격 접속 제한,취약\n10.0.1.31,관리용 SSH 점프 서버,OpenSSH,9.6,U-02 패스워드 복잡성 설정,취약\n10.0.1.41,회계 파일 서버,OpenSSH,9.3,U-02 패스워드 복잡성 설정,양호\n10.0.2.15,ERP DB 서버,MySQL,8.0.36,D-01 기본 계정 비밀번호 변경,취약' },
   scanner: { label: '스캐너 CSV (OpenVAS·Nessus 형식)', text: 'Host,Name,Product,Version,Plugin,Risk\n203.0.113.10,고객 포털 웹서버,Apache httpd,2.4.58,CVE-2026-41001,Critical\n203.0.113.20,사내 위키,WordPress,6.6.1,CVE-2026-41006,None\n203.0.113.30,사내 CI 서버,Jenkins,2.452,CVE-2026-41007,Critical' },
+  // 실사이트 응답 헤더·HTML 점검 결과 (2026-10-19 실제 관측)
+  ani: { label: '실사이트 점검 — 애니 시맨틀', text: '호스트,자산명,제품,버전,점검 항목,결과\nanisemantle.com,애니 시맨틀 게임 페이지,Cloudflare,,HTTPS 강제 리다이렉트 (HTTP→301),양호\nanisemantle.com,애니 시맨틀 게임 페이지,Cloudflare,,HSTS(Strict-Transport-Security) 헤더 미설정,취약\nanisemantle.com,애니 시맨틀 게임 페이지,Cloudflare,,CSP(Content-Security-Policy) 헤더 미설정 — GTM·AdSense 외부 스크립트 허용 범위 미정의,취약\nanisemantle.com,애니 시맨틀 게임 페이지,Cloudflare,,X-Frame-Options·frame-ancestors 미설정 (클릭재킹),취약\nanisemantle.com,애니 시맨틀 게임 페이지,Cloudflare,,X-Content-Type-Options nosniff 미설정,취약\nanisemantle.com,애니 시맨틀 게임 페이지,Cloudflare,,Referrer-Policy 헤더 미설정,취약\nanisemantle.com,게임 API,Cloudflare,,/api/event 메서드 제한 (GET 405),양호\nanisemantle.com,애니 시맨틀 게임 페이지,Cloudflare,,security.txt 보안 연락처 미게시,취약(권고)' },
+  wn: { label: '실사이트 점검 — WhiteNoard', text: '호스트,자산명,제품,버전,점검 항목,결과\nwhitenoard.tyoujungzz.workers.dev,WhiteNoard 웹앱,React,19.3.0,HTTPS 적용 (.dev 도메인 브라우저 HSTS preload),양호\nwhitenoard.tyoujungzz.workers.dev,WhiteNoard 웹앱,React,19.3.0,CSP(Content-Security-Policy) 헤더 미설정,취약\nwhitenoard.tyoujungzz.workers.dev,WhiteNoard 웹앱,React,19.3.0,X-Frame-Options·frame-ancestors 미설정 (클릭재킹),취약\nwhitenoard.tyoujungzz.workers.dev,WhiteNoard 웹앱,React,19.3.0,X-Content-Type-Options nosniff 미설정,취약\nwhitenoard.tyoujungzz.workers.dev,WhiteNoard 웹앱,React,19.3.0,외부 CSS SRI(integrity) 미적용 — jsDelivr Pretendard,취약\nwhitenoard.tyoujungzz.workers.dev,Google 로그인,Google OAuth,,세션 쿠키 HttpOnly·Secure·SameSite=Lax,양호\nwhitenoard.tyoujungzz.workers.dev,Google 로그인,Google OAuth,,OAuth PKCE(S256)·state 사용,양호' },
 };
 
 // 업종 벤치마크: MSP 고객사 익명 집계 목업 값
@@ -314,4 +359,172 @@ const BENCHMARK = {
   '제조 협력사': { n: 22, progress: 41, days: 16.5 },
   물류: { n: 9, progress: 52, days: 13.0 },
   default: { n: 45, progress: 50, days: 13.4 },
+};
+
+// ---------- 사이트 운영 (자동 오류 리포팅) ----------
+// 소규모 사업자 사이트 구성요소. callers: 이 구성요소를 호출하는 상위 구성요소 (오류 전파 경로)
+const OPS_COMPONENTS = [
+  { id: 'web', name: '웹 프론트', desc: '쇼핑몰 화면·페이지 응답', callers: [] },
+  { id: 'app', name: '주문·회원 서버', desc: '장바구니·주문·로그인 처리', callers: ['web'] },
+  { id: 'db', name: 'DB', desc: '상품·주문·회원 데이터', callers: ['app'] },
+  { id: 'pg', name: '결제 PG 연동', desc: '카드·간편결제 승인', callers: ['app'] },
+  { id: 'notify', name: '알림톡·메일 발송', desc: '주문 확인·배송 알림', callers: ['app'] },
+  { id: 'search', name: '상품 검색', desc: '검색·카테고리 목록', callers: ['web'] },
+  { id: 'image', name: '이미지·CDN', desc: '상품 이미지·정적 파일', callers: ['web'] },
+];
+
+// 구성요소별 수집 지표: 기준값(base)·잡음 비율(sd) — 합성 기준선 목업 값
+const OPS_METRICS = {
+  cpu: { name: 'CPU', unit: '%', base: 22, sd: 0.08 },
+  mem: { name: '메모리', unit: 'MB', base: 800, sd: 0.03 },
+  disk: { name: '디스크 I/O', unit: 'MB/s', base: 6, sd: 0.15 },
+  conn: { name: '연결 수', unit: '개', base: 30, sd: 0.1 },
+  traffic: { name: '요청량', unit: '건/분', base: 120, sd: 0.08 },
+  error: { name: '오류율', unit: '%', base: 0.6, sd: 0.3 },
+  latency: { name: '응답 시간', unit: 's', base: 0.25, sd: 0.1 },
+};
+
+const OPS_FAULTS = [
+  { id: 'cpu', name: 'CPU 과부하', runbook: 'RB-CPU' },
+  { id: 'mem', name: '메모리 누수', runbook: 'RB-MEM' },
+  { id: 'disk', name: '디스크 포화', runbook: 'RB-DISK' },
+  { id: 'delay', name: '응답 지연', runbook: 'RB-DELAY' },
+  { id: 'loss', name: '요청 실패', runbook: 'RB-LOSS' },
+  { id: 'socket', name: '연결 고갈', runbook: 'RB-SOCKET' },
+];
+
+// 오류 대응 런북 (팀원 runbooks.md를 소규모 사업자 사이트 기준으로 각색)
+const OPS_RUNBOOKS = [
+  { id: 'RB-CPU', title: 'CPU 과부하',
+    symptom: '특정 구성요소의 CPU 사용률 급등과 함께 응답 시간 증가, 이를 호출하는 화면(웹 프론트)도 느려짐',
+    cause: '최근 업데이트·플러그인의 비효율 코드, 이벤트·광고로 인한 트래픽 급증, 악성 봇 접속, 호스팅 요금제 자원 한도 도달',
+    check: '최근 업데이트·플러그인 설치 이력, 요청량 증가가 CPU 증가를 설명하는지, 호스팅 관리 화면의 자원 사용 그래프',
+    action: '직전 업데이트 되돌리기, 의심 플러그인 비활성화, 호스팅 자원 임시 증설, 악성 봇 IP 차단',
+    prevent: 'CPU 사용률 알림 기준 설정, 이벤트 전 호스팅 용량 점검, 업데이트 전 백업·테스트' },
+  { id: 'RB-MEM', title: '메모리 누수',
+    symptom: '메모리 사용량이 시간이 지날수록 계속 증가, 한도 도달 시 서버 재시작·접속 끊김 반복',
+    cause: '해제되지 않는 캐시·세션, 플러그인·라이브러리 버그, 대용량 이미지 처리 누적',
+    check: '메모리 증가가 업데이트 시점과 맞물리는지, 재시작 횟수, 캐시·세션 설정',
+    action: '직전 업데이트 되돌리기 또는 서버 재시작(임시), 호스팅사에 메모리 한도 확인 요청',
+    prevent: '메모리 증가율 알림, 캐시 크기 상한 설정, 정기 재시작 일정 수립' },
+  { id: 'RB-DISK', title: '디스크 포화',
+    symptom: '디스크 읽기·쓰기 급증, 응답 시간 증가, 용량 부족 시 주문·업로드 실패',
+    cause: '로그 파일 폭증, 백업·배치 작업 중복 실행, 상품 이미지 대량 업로드, 디스크 용량 부족',
+    check: '디스크 사용량, 로그 파일 크기, 같은 시간대 백업·배치 작업',
+    action: '백업·배치 작업 중단·연기, 오래된 로그 정리, 호스팅 디스크 용량 증설',
+    prevent: '디스크 사용률 알림, 로그 보관 기간 설정, 백업 시간을 영업 외 시간으로 분리' },
+  { id: 'RB-DELAY', title: '응답 지연',
+    symptom: '응답 시간이 급격히 증가하지만 CPU·메모리는 큰 변화 없음, 호출하는 상위 화면이 함께 느려짐',
+    cause: '외부 연동(PG·택배·알림톡) API 지연, 호스팅사 네트워크 문제, DNS 지연, 느린 DB 쿼리',
+    check: '외부 연동사 오류 공지, 같은 호스팅의 다른 구성요소도 느린지, 최근 설정 변경',
+    action: '연동 타임아웃·재시도 조정, 지연 연동 임시 우회(예: 다른 결제수단 안내), 호스팅사·연동사 문의',
+    prevent: '응답 시간 알림 기준 설정, 외부 연동 타임아웃 기본값 점검, 연동사 오류 공지 구독' },
+  { id: 'RB-LOSS', title: '요청 실패',
+    symptom: '응답 시간이 튀고 처리 요청량이 줄며, 상위 화면에서 오류 페이지 증가',
+    cause: '네트워크 불안정, 연결 끊김, 방화벽·보안 설정 오류, SSL 인증서 문제',
+    check: '오류 응답 코드 분포, 재시도 횟수, 최근 방화벽·인증서 변경',
+    action: '문제 경로 차단·우회, 재시도 폭주 방지 설정 확인, 호스팅사 네트워크 점검 요청',
+    prevent: '오류율 알림 기준 설정, 재시도 간격(백오프) 설정, 인증서 만료 알림' },
+  { id: 'RB-SOCKET', title: '연결 고갈',
+    symptom: '열린 연결 수 급증, 새 연결 실패·지연, DB·외부 연동 연결 오류 로그 증가',
+    cause: 'DB 커넥션 풀 누수, 닫히지 않는 연결, 하위 구성요소 지연으로 연결이 쌓임',
+    check: '연결 수 추이, 커넥션 풀 설정, 하위 구성요소(DB·PG) 지연 여부',
+    action: '서비스 재시작(임시), 커넥션 풀 크기·타임아웃 조정',
+    prevent: '연결 수 알림, 커넥션 풀 모니터링, 연결 해제 코드 점검(개발사 요청)' },
+  { id: 'RB-REPORT', title: '오류 보고서 작성 지침',
+    symptom: '사실(관측된 지표·로그)과 추정(원인 가설)을 구분, 추정에는 근거 지표 첨부',
+    cause: '필수 항목: 오류 개요, 발생·인지·복구 시각, 영향 범위, 원인 분석, 조치 내역, 재발 방지 대책, 이용자 고지문',
+    check: '주문·결제 누락 여부, 고객 문의 접수 현황',
+    action: '이용자 고지문은 쉬운 말로 사과 → 영향 → 원인(간단히) → 조치 → 문의처 순서, 쇼핑몰 공지·SNS·문자로 안내',
+    prevent: '오류 이력을 월간 운영 보고에 포함해 재발 여부 추적' },
+];
+
+// 고객사별 운영 사이트
+const OPS_SITES = {
+  A: { name: '고객 포털', domain: 'portal.example-a.co.kr' },
+  B: { name: '자사 쇼핑몰', domain: 'shop.example-b.co.kr' },
+  C: { name: '배송 조회 사이트', domain: 'track.example-c.co.kr' },
+  // 실사이트: 관측한 구조 기준 구성요소 (id web·app·db는 전파 규칙 호환용으로 유지)
+  ANI: { name: '애니 시맨틀', domain: 'anisemantle.com', components: [
+    { id: 'web', name: '게임 페이지', desc: '정적 HTML·game.js (Cloudflare 캐시)', callers: [] },
+    { id: 'app', name: '게임 API', desc: '/api/event 기록·/api/stats 통계', callers: ['web'] },
+    { id: 'db', name: '통계 저장소', desc: '일일 플레이·정답 집계 [저장소 종류 확인 필요]', callers: ['app'] },
+    { id: 'data', name: '유사도 데이터', desc: '/data/similarity_meta.json·rows/*.json', callers: ['web'] },
+    { id: 'ads', name: '광고·분석 스크립트', desc: 'GTM·AdSense 외부 스크립트', callers: ['web'] },
+    { id: 'font', name: '웹폰트', desc: 'Google Fonts Noto Sans KR', callers: ['web'] },
+  ] },
+  WN: { name: 'WhiteNoard', domain: 'whitenoard.tyoujungzz.workers.dev', components: [
+    { id: 'web', name: '앱 화면', desc: 'React SPA 번들·정적 자산', callers: [] },
+    { id: 'app', name: '동기화 API', desc: '/api/sync pull·push·reset', callers: ['web'] },
+    { id: 'db', name: '사용자 데이터 저장소', desc: '문서·동기화 데이터 [D1 추정, 확인 필요]', callers: ['app'] },
+    { id: 'auth', name: 'Google 로그인', desc: '/api/auth — OAuth 콜백·세션 확인', callers: ['web'] },
+    { id: 'cdn', name: '폰트 CDN', desc: 'jsDelivr Pretendard·Google Fonts', callers: ['web'] },
+    { id: 'sample', name: '샘플 데이터', desc: '샘플 세계관 JSON 불러오기', callers: ['web'] },
+  ] },
+};
+
+// 실사이트 적용 점검: 관측 결과 (2026-10-19 읽기 전용 GET 요청 — 응답 헤더·HTML·공개 스크립트)
+const MYSITE_OBSERVED = '2026-10-19';
+const MYSITE_CHECKS = [
+  ['호스팅', 'Cloudflare (CF-Cache-Status 응답)', 'Cloudflare Workers'],
+  ['프론트엔드', '정적 HTML + /js/game.js (바닐라 JS)', 'React 19.3.0 SPA (Vite 번들)'],
+  ['API', '/api/event (POST), /api/stats (공개 JSON), /data/rows/*.json', '/api/auth/login·logout·me, /api/sync/pull·push·reset'],
+  ['인증·개인정보', '로그인 없음 — 광고·분석 쿠키 [개인정보 해당 여부 확인 필요]', 'Google OAuth (PKCE S256) — 이메일·프로필 수집'],
+  ['세션 쿠키', '해당 없음', 'HttpOnly·Secure·SameSite=Lax'],
+  ['외부 스크립트·리소스', 'Google Tag Manager, AdSense, Google Fonts', 'jsDelivr Pretendard (SRI 없음), Google Fonts'],
+  ['HTTPS', 'HTTP → HTTPS 301 리다이렉트', 'HTTP 200 응답 (.dev 도메인은 브라우저 HSTS preload로 보완)'],
+  ['보안 헤더', 'HSTS·CSP·X-Frame-Options·X-Content-Type-Options·Referrer-Policy·Permissions-Policy 모두 없음', '동일 6종 모두 없음'],
+  ['security.txt', '없음 (404)', '없음 (SPA 폴백 HTML 응답)'],
+  ['robots·sitemap', '있음 (ko·en 페이지 색인)', '있음'],
+];
+
+// 기능별 적용 판정: [판정(가능·부분·해당 없음), 근거]. view는 시연 바로가기 화면
+const MYSITE_FEATURES = [
+  { feature: '할 일 홈·위험 평가', view: 'todo',
+    ANI: ['부분', '관리형 플랫폼·정적 페이지라 매칭 위협 없음 — 설정 점검 할 일로 운영'],
+    WN: ['가능', 'React 19.3.0 ↔ 가상 CVE-2026-41009 버전 범위 매칭 → 할 일·증빙 종결'] },
+  { feature: '자동 자산 탐색', view: 'assets',
+    ANI: ['부분', '외부 노출 점검만 — 서버 접속은 서버리스라 해당 없음, 저장소 미연결'],
+    WN: ['부분', '외부 노출 점검으로 번들의 React 버전 확인 — 서버 접속 해당 없음, 저장소 미연결'] },
+  { feature: '외부 점검 결과 가져오기', view: 'assets',
+    ANI: ['가능', '보안 헤더 5종 부재·security.txt 미게시 → 설정 취약 할 일'],
+    WN: ['가능', 'CSP·클릭재킹·nosniff 헤더 부재, 외부 CSS SRI 미적용 → 설정 취약 할 일'] },
+  { feature: '에이전트 대화', view: 'chat',
+    ANI: ['가능', '자산·할 일·오류 기록 기준 답변'], WN: ['가능', '자산·할 일·오류 기록 기준 답변'] },
+  { feature: '오류 모니터링', view: 'ops',
+    ANI: ['부분', '사이트 구성요소로 원인 분석 동작, 지표는 합성 — 실연동은 Cloudflare Analytics·Logpush 필요'],
+    WN: ['부분', '사이트 구성요소로 원인 분석 동작, 지표는 합성 — 실연동은 Workers Analytics·Logpush 필요'] },
+  { feature: '리포트(보안·오류)', view: 'report',
+    ANI: ['가능', '경영진 요약·오류 보고서 생성'], WN: ['가능', '경영진 요약·오류 보고서 생성'] },
+  { feature: '사고 대응', view: 'incident',
+    ANI: ['가능', '홈페이지 변조·계정 탈취(호스팅 계정) 체크리스트'],
+    WN: ['가능', '개인정보 유출(Google 계정 이메일)·계정 탈취 — 신고 기한 포함'] },
+  { feature: '보안 의무 일정', view: 'todo',
+    ANI: ['부분', '개인정보 처리 여부 확인 필요 — 현재 백업 복구 테스트만 표시'],
+    WN: ['가능', '개인정보 처리 → 접속기록 점검·취급자 교육 일정'] },
+  { feature: '계약·단종 관리', view: 'assets',
+    ANI: ['부분', '도메인·플랫폼 요금제 만료일 입력 시 동작 (외부 관측 불가)'],
+    WN: ['부분', 'workers.dev 무료 도메인 — 플랫폼 요금제 만료일 입력 시 동작'] },
+  { feature: '요금제·지원사업', view: 'plans',
+    ANI: ['가능', '1인 사업자 — 무료 플랜, 회사 조건별 지원사업 매칭'], WN: ['가능', '1인 사업자 — 무료 플랜, 회사 조건별 지원사업 매칭'] },
+  { feature: '파트너 콘솔(고객사 비교)', view: 'tenants',
+    ANI: ['가능', '두 사이트를 고객사 2곳으로 비교'], WN: ['가능', '두 사이트를 고객사 2곳으로 비교'] },
+  { feature: '위협 정보 갱신 시뮬레이션', view: 'todo',
+    ANI: ['부분', '재평가 흐름은 동작, 현재 갱신 대상(Jenkins·MySQL)과 무관'], WN: ['부분', '재평가 흐름은 동작, 현재 갱신 대상(Jenkins·MySQL)과 무관'] },
+  { feature: '점검 대응(원청 점검표)', view: 'audit',
+    ANI: ['해당 없음', '원청 협력사 아님 — 양식 작성은 동작하나 제출처 없음'], WN: ['해당 없음', '원청 협력사 아님 — 양식 작성은 동작하나 제출처 없음'] },
+  { feature: '국내 공지 구조화', view: 'dashboard',
+    ANI: ['해당 없음', '국산 SW 미사용'], WN: ['해당 없음', '국산 SW 미사용'] },
+  { feature: '영향 조건 확인·외주 요청', view: 'analysis',
+    ANI: ['해당 없음', '조건 확인 대상(Apache·Jenkins·Tomcat) 없음, 외주 운영 아님'], WN: ['해당 없음', '조건 확인 대상(Apache·Jenkins·Tomcat) 없음, 외주 운영 아님'] },
+];
+
+// 오류 유형별 신규 경고·오류 로그 템플릿 (합성 로그용)
+const OPS_LOG_TEMPLATES = {
+  cpu: ['WARN request timeout after 3000ms', 'WARN worker queue backlog <:NUM:> requests'],
+  mem: ['WARN GC overhead limit approaching', 'ERROR out of memory — process restarted'],
+  disk: ['WARN disk usage <:NUM:>% on /var', 'ERROR write failed: no space left on device', 'WARN slow write <:NUM:>ms'],
+  delay: ['WARN upstream response slow <:NUM:>ms', 'WARN PG 승인 응답 5000ms 초과'],
+  loss: ['ERROR connection reset by peer', 'ERROR upstream 502 Bad Gateway', 'WARN retry <:NUM:>/3'],
+  socket: ['ERROR DB connection pool exhausted', 'ERROR cannot acquire connection within 3000ms', 'WARN too many open connections'],
 };

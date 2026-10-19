@@ -3,14 +3,14 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>CTI 대응 도우미</title>
-  <link rel="stylesheet" href="styles.css?v=10">
+  <title>사이트 자동 운영 도우미</title>
+  <link rel="stylesheet" href="styles.css?v=12">
 </head>
 <body>
   <header class="topbar">
-    <div class="brand">CTI 대응 도우미 <span class="tag">MVP</span></div>
+    <div class="brand">사이트 자동 운영 도우미 <span class="tag">MVP</span></div>
     <div id="tenantBox"></div>
-    <div class="notice">시연용 가상 데이터 — CVE ID·점수·날짜는 실제 정보와 무관</div>
+    <div class="notice">시연용 가상 데이터 — CVE ID·점수·날짜·오류 지표는 실제 정보와 무관</div>
     <div class="actions">
       <div class="bell-wrap">
         <button id="bellBtn" class="ghost" data-action="toggle-notif">알림</button>
@@ -24,7 +24,8 @@
     <nav class="sidebar">
       <a href="#todo" data-nav="todo">할 일</a>
       <a href="#chat" data-nav="chat">에이전트 대화</a>
-      <a href="#report" data-nav="report">보고</a>
+      <a href="#ops" data-nav="ops">오류 모니터링</a>
+      <a href="#report" data-nav="report">리포트(보안·오류)</a>
       <a href="#audit" data-nav="audit">점검 대응</a>
       <a href="#incident" data-nav="incident">사고 대응</a>
       <div class="nav-label">상세 분석</div>
@@ -37,17 +38,20 @@
       <a href="#plans" data-nav="plans">요금제·지원사업</a>
       <div class="nav-label">파트너 콘솔</div>
       <a href="#tenants" data-nav="tenants">고객사 현황</a>
+      <div class="nav-label">실사이트 적용</div>
+      <a href="#mysite" data-nav="mysite">내 사이트 적용 점검</a>
     </nav>
     <main id="view"></main>
   </div>
-  <script src="data.js?v=10"></script>
-  <script src="engine.js?v=10"></script>
-  <script src="charts.js?v=10"></script>
-  <script src="intake.js?v=10"></script>
-  <script src="discovery.js?v=10"></script>
-  <script src="compliance.js?v=10"></script>
-  <script src="report.js?v=10"></script>
-  <script src="agent.js?v=10"></script>
-  <script src="app.js?v=10"></script>
+  <script src="data.js?v=12"></script>
+  <script src="engine.js?v=12"></script>
+  <script src="charts.js?v=12"></script>
+  <script src="intake.js?v=12"></script>
+  <script src="discovery.js?v=12"></script>
+  <script src="compliance.js?v=12"></script>
+  <script src="ops.js?v=12"></script>
+  <script src="report.js?v=12"></script>
+  <script src="agent.js?v=12"></script>
+  <script src="app.js?v=12"></script>
 </body>
 </html>

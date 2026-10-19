@@ -234,6 +234,7 @@ function parseVendorReply(text, base) {
 const VERSION_CMD = {
   'Apache HTTP Server': 'httpd -v', FortiOS: 'get system status', Jenkins: 'java -jar jenkins-cli.jar version', MySQL: 'mysql --version',
   nginx: 'nginx -v', OpenSSH: 'ssh -V', WordPress: 'wp core version', 'Apache Tomcat': 'version.sh',
+  React: 'npm ls react',
 };
 function fixedVersionOf(product, vulns) {
   const fixed = vulns.filter(v => norm(v.product) === norm(product)).map(v => v.affected.fixed);

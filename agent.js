@@ -5,7 +5,7 @@ const AGENT_EXAMPLES = [
   '지금 제일 급한 거 뭐야?', 'VPN 관련 위협 정리해줘', 'Jenkins 건은 왜 긴급이야?', '버전 확인 필요한 자산 알려줘',
   '등급별 위험 분포 보여줘', '지난 8주 추이 보여줘', '고객사별 현황 비교해줘',
   '미확인 정보 채워줘', '자산 등록: 영업팀 파일 서버 톰캣 9.0.90 외부 공개', '이번 주 경영진 보고서 만들어줘',
-  '원청 점검표 작성해줘', '받을 수 있는 정부 지원사업 알려줘',
+  '원청 점검표 작성해줘', '받을 수 있는 정부 지원사업 알려줘', '최근 사이트 오류 원인 뭐야?',
 ];
 const GENERIC_TOKENS = new Set(['서버', '사내', '내부']);
 
@@ -73,6 +73,18 @@ function agentRespond(text) {
     return res({
       text: [INCIDENT_FIRST, '사고 대응 화면에서 유형을 고르면 첫 대응 체크리스트·신고 기한·신고서 초안을 정리함.'],
       link: { href: '#incident', label: '사고 대응 열기' },
+    });
+  }
+
+  if (has(/장애|오류|에러|느려|다운|접속.*안/)) {
+    const inc = call('get_ops_incident', '최근', () => state.opsIncidents[0], x => (x ? `${x.id} ${x.det.top}/${x.det.fault}` : '오류 없음'));
+    if (!inc) return res({ text: ['감지된 사이트 오류 없음.', '오류 모니터링 화면의 오류 시뮬레이션으로 자동 분석·보고 흐름 확인 가능.'], link: { href: '#ops', label: '오류 모니터링 열기' } });
+    const f = inc.facts, [c1, c2] = f.원인_후보, rb = runbookOf(f.참고_런북[0].id);
+    return res({
+      text: [`최근 오류(${f.장애_감지_시각}, ${inc.site}): ${c1.서비스} — ${f.추정_장애유형} 추정 (점수 ${c1.점수}).`,
+        `근거: ${f.근거_지표[0].지표} 최대 z=${f.근거_지표[0].최대z} · 근거 검증 ${opsVerified(f)}/${f.검증.length} 확인 · 2순위 점검 ${c2.서비스}(${c2.점수}).`,
+        `권장 1차 조치(${rb.id}): ${rb.action}`],
+      link: { href: `#ops/${inc.id}`, label: '오류 상세 열기' },
     });
   }
 

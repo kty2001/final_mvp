@@ -1,6 +1,6 @@
 // 화면 렌더링·상태 관리 (브라우저 localStorage 저장, 고객사별 데이터 분리)
 
-const STORE_KEY = 'cti-mvp-v3';
+const STORE_KEY = 'cti-mvp-v5';
 const clone = o => JSON.parse(JSON.stringify(o));
 const $view = document.getElementById('view');
 const PRODUCTS = [...new Set(VULNS.map(v => v.product))];
@@ -28,6 +28,7 @@ let scanPreview = null;   // 외부 점검 결과 분석 결과
 let condDraft = {};       // 영향 조건 확인: key → { output, result }
 let vendorDraft = {};     // 외주 업체 회신: key → { reply, parsed }
 let evidenceDraft = null; // 조치 증빙 입력: { assetId, type, text, error }
+let opsPick = { component: 'db', fault: 'socket' }; // 오류 리포팅: 오류 시뮬레이션 선택값
 
 const pad = n => String(n).padStart(2, '0');
 const ymd = d => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
@@ -53,7 +54,7 @@ function seedTenant(seed) {
     onboarding: seed.onboarding || null,
     profile: clone(seed.profile || DEFAULT_PROFILE),
     dutyDue: Object.fromEntries(DUTIES.map(d => [d.id, addDays(today(), d.firstDueIn)])), dutyLog: [],
-    conditionChecks: {}, vendorRequests: {}, decisions: {}, incident: null, incidents: [],
+    conditionChecks: {}, vendorRequests: {}, decisions: {}, incident: null, incidents: [], opsIncidents: [],
   };
 }
 function linkShared(s) {
@@ -85,6 +86,7 @@ function switchTenant(id) {
   chatLog = []; intakePreview = null; intakeText = ''; editingAssetId = null; formError = ''; notifOpen = false;
   formDraft = null; discoveryPreview = null;
   auditFormId = null; krPreview = null; scanText = ''; scanPreview = null; condDraft = {}; vendorDraft = {}; evidenceDraft = null;
+  opsPick = { component: 'db', fault: 'socket' };
   save();
 }
 function initTenants() {
@@ -245,7 +247,7 @@ function evidenceForm(asset) {
 function extraTaskCard() {
   const open = state.tasks.filter(t => t.kind && t.status !== '완료');
   if (!open.length) return '';
-  return `<section class="todo-group"><h3>점검·계약 할 일 (${open.length}) <span class="muted">취약점 외 업무</span></h3><div class="card">
+  return `<section class="todo-group"><h3>오류·점검·계약 할 일 (${open.length}) <span class="muted">취약점 외 업무</span></h3><div class="card">
     <ul class="checklist">${open.map(t => `<li><label><input type="checkbox" data-todo-task="${t.id}"> ${esc(t.title)}</label> <a class="muted" href="${t.link}">${esc(t.assetName)}</a></li>`).join('')}</ul></div></section>`;
 }
 
@@ -308,6 +310,7 @@ function viewTodo() {
     <p class="sub">${esc(state.name)} · 대응 필요 ${active.length}건 · 할 일 처리율 ${rate}% (${done}/${state.tasks.length}) — 위 카드부터 처리</p>
     <div class="meter"><span style="width:${rate}%"></span></div>
     ${onboardingCard()}
+    ${opsTodoCard()}
     ${brief ? `<div class="card"><h3>에이전트 브리핑</h3>${renderMsg(brief[0], brief[1], byKey)}</div>` : ''}
     ${checkCard(unsure)}
     ${TODO_GROUPS.map(g => {
@@ -1111,6 +1114,41 @@ function addTenant(form) {
   route();
 }
 
+// ---------- 화면: 내 사이트 적용 점검 (사용자 소유 실사이트 2곳) ----------
+const MYSITE_CLS = { 가능: 'p-done', 부분: 'p-medium', '해당 없음': 'p-none' };
+const MYSITE_STEPS = [
+  ['WN', 'assets', 'WhiteNoard: 자동 자산 탐색 → React 버전 보완 승인 → 할 일 홈에 CVE-2026-41009(가상) 카드 → 증빙 예시 입력 후 종결'],
+  ['WN', 'assets', 'WhiteNoard: 외부 점검 결과 가져오기 → "실사이트 점검 — WhiteNoard" 예시 → 분석 → 승인 → 헤더·SRI 할 일'],
+  ['ANI', 'assets', '애니 시맨틀: 자동 자산 탐색 → 광고·분석 스크립트 신규 등록 → "실사이트 점검 — 애니 시맨틀" 예시로 보안 헤더 할 일'],
+  ['ANI', 'ops', '애니 시맨틀: 오류 모니터링 → 구성요소 "통계 저장소"·"연결 고갈" 시뮬레이션 → 오류 보고서 초안'],
+  ['WN', 'incident', 'WhiteNoard: 사고 대응 → 개인정보 유출 의심 → 신고 기한·신고서 초안'],
+  ['WN', 'tenants', '고객사 현황: 두 사이트 위험·진행률 비교'],
+];
+
+function viewMySite() {
+  const ids = ['ANI', 'WN'].filter(id => store.tenants[id]);
+  if (!ids.length) return '<h2>내 사이트 적용 점검</h2><div class="card"><p class="empty">실사이트 고객사 없음 — 상단 [데모 초기화] 후 다시 열기</p></div>';
+  const cells = MYSITE_FEATURES.flatMap(f => ids.map(id => f[id][0]));
+  const stats = statTenants().filter(s => ids.includes(s.id));
+  const openTasks = id => store.tenants[id].tasks.filter(t => t.status !== '완료').length;
+  const demoBtn = (id, view, label) => `<button class="small ghost" data-action="mysite-demo" data-id="${id}|${view}">${esc(label)}</button>`;
+  return `
+    <h2>내 사이트 적용 점검</h2>
+    <p class="sub">${ids.map(id => esc(OPS_SITES[id].domain)).join(' · ')} — MVP 기능별 적용 가능 여부와 시연 바로가기</p>
+    <p class="muted">관측: ${MYSITE_OBSERVED} 읽기 전용 GET 요청(응답 헤더·HTML·공개 스크립트)만 사용한 스냅샷. 두 사이트 모두 CORS 미허용이라 브라우저에서 직접 재수집 불가 — 실서비스는 서버 측 수집기. 위협 정보 CVE-2026-41009는 시연용 가상 취약점</p>
+    <div class="grid kpi">${Object.keys(MYSITE_CLS).map(v => `<div class="card"><div class="label">${v}</div><div class="num">${cells.filter(c => c === v).length}</div><div class="hint">기능 ${MYSITE_FEATURES.length}개 × 사이트 ${ids.length}곳 기준</div></div>`).join('')}</div>
+    <div class="card"><h3>사이트 관측 결과</h3>${simpleTable({ head: ['항목', ...ids.map(id => OPS_SITES[id].name)], rows: MYSITE_CHECKS.map(r => [r[0], ...ids.map(id => r[id === 'ANI' ? 1 : 2])]) })}</div>
+    <div class="card"><h3>기능별 적용 판정</h3><div class="table-wrap"><table>
+      <tr><th>MVP 기능</th>${ids.map(id => `<th>${esc(OPS_SITES[id].name)}</th>`).join('')}</tr>
+      ${MYSITE_FEATURES.map(f => `<tr><td><b>${esc(f.feature)}</b></td>${ids.map(id => `<td>${badge(f[id][0], MYSITE_CLS[f[id][0]])} ${f[id][0] === '해당 없음' ? '' : demoBtn(id, f.view, '시연')}<div class="muted">${esc(f[id][1])}</div></td>`).join('')}</tr>`).join('')}
+    </table></div></div>
+    <div class="grid two">
+      <div class="card"><h3>권장 시연 순서</h3><ol>${MYSITE_STEPS.map(([id, view, text]) => `<li>${esc(text)} ${demoBtn(id, view, '열기')}</li>`).join('')}</ol></div>
+      <div class="card"><h3>현재 상태</h3>${simpleTable({ head: ['사이트', '자산', '대응 필요', '긴급', '미완료 할 일', '읽지 않은 알림'], rows: stats.map(s => [s.name, s.assets, s.active, s.urgent, openTasks(s.id), s.unread]) })}
+        <p class="muted">시연 버튼은 해당 고객사로 전환 후 화면 이동 — 상태는 고객사별로 따로 저장</p></div>
+    </div>`;
+}
+
 // ---------- 화면: 점검 대응 (원청·인증 점검 양식 자동 작성) ----------
 function viewAudit() {
   const form = AUDIT_FORMS.find(f => f.id === auditFormId);
@@ -1256,6 +1294,92 @@ function viewPlans() {
     <div class="grid two">${profileCard()}${supportCard()}</div>`;
 }
 
+// ---------- 자동 오류 리포팅 ----------
+const opsSite = () => OPS_SITES[state.id] || { name: '사이트', domain: `${state.name} 사이트` };
+const opsOpen = inc => state.tasks.some(t => t.key === `ops|${inc.id}` && t.status !== '완료');
+const OPS_STATUS_CLS = { '원인 후보': 'p-urgent', 이상: 'p-high', 주의: 'p-medium', 정상: 'p-done' };
+
+// 오류 감지 → 분석 → 보고서 자동 보관·알림·할 일 등록 (KEV 긴급 알림 자동 생성과 같은 흐름)
+function simulateOpsIncident(component, fault) {
+  const id = `I${++state.seq}`;
+  const site = opsSite().domain;
+  const inc = { id, at: nowText(), ...runOpsAnalysis(component, fault, state.seq, site) };
+  state.opsIncidents.unshift(inc);
+  const f = inc.facts, top = f.원인_후보[0].서비스, rb = runbookOf(f.참고_런북[0].id);
+  inc.reportId = archiveReport('error', '자동 — 사이트 오류 감지', id).id;
+  addHistory('오류 감지', `${site}: ${top} ${f.추정_장애유형} 추정 — 근거 ${opsVerified(f)}/${f.검증.length} 확인, 오류 보고서 초안 자동 생성`);
+  notify('오류', `${top} · ${f.추정_장애유형} 추정`, `${site} — 메신저 알림·오류 보고서 초안 자동 생성`, `#ops/${id}`);
+  addExtraTask({ kind: 'ops', key: `ops|${id}`, assetName: `${site} ${top}`, cveId: rb.id, priority: '긴급', priorityCls: 'p-urgent',
+    title: `[오류] ${rb.action}`, reason: `${f.추정_장애유형} 추정 — ${f.근거_지표[0].지표} 최대 z=${f.근거_지표[0].최대z}`, refs: [rb.id], link: `#ops/${id}` });
+  save();
+  return inc;
+}
+
+function opsTodoCard() {
+  const inc = state.opsIncidents.find(opsOpen);
+  if (!inc) return '';
+  const f = inc.facts;
+  return `<div class="card"><h3>사이트 오류 ${badge('조치 대기', 'p-urgent')}</h3>
+    <p>${esc(f.장애_감지_시각)} · ${esc(inc.site)} — ${esc(f.원인_후보[0].서비스)}에서 ${esc(f.추정_장애유형)} 추정 (근거 ${opsVerified(f)}/${f.검증.length} 확인)</p>
+    <div class="toolbar"><a href="#ops/${inc.id}">원인·근거 보기 →</a><a href="#report/log-${inc.reportId}">오류 보고서 →</a></div></div>`;
+}
+
+function opsDetail(inc) {
+  const f = inc.facts, ok = opsVerified(f), n = f.검증.length;
+  const hit = inc.truth.component === inc.det.top && inc.truth.fault === inc.det.fault;
+  const rbs = f.참고_런북.map(r => runbookOf(r.id));
+  return `<div class="card">
+      <div class="toolbar"><h3 style="margin:0">${esc(f.원인_후보[0].서비스)} · ${esc(f.추정_장애유형)} 추정</h3>
+        ${badge('오류 감지', 'p-urgent')} ${badge(`근거 ${ok}/${n} 확인`, ok === n ? 'p-done' : 'p-medium')}
+        ${badge(hit ? '주입 정답 일치' : `주입 정답: ${opsName(inc.truth.component)} · ${faultOf(inc.truth.fault).name}`, hit ? 'p-done' : 'p-high')}
+        ${badge(opsOpen(inc) ? '조치 대기' : '조치 완료', opsOpen(inc) ? 'p-high' : 'p-done')}</div>
+      <p class="muted">감지 ${esc(f.장애_감지_시각)} · ${esc(inc.site)} · 케이스 ${esc(f.케이스)} · <a href="#report/log-${inc.reportId}">오류 보고서 초안 보기 →</a></p>
+      <div class="grid two">
+        <div><h3>에이전트 실행 로그</h3>${inc.steps.map(s => `<code class="cmd">${esc(s)}</code>`).join('')}</div>
+        <div>${renderChart({ kind: 'bar', title: '원인 후보 순위 (점수)', rows: inc.det.ranking.slice(0, 5).map((r, i) => ({ label: opsName(r.id), value: Number(r.score.toFixed(3)), fill: i ? STATUS_FILL['p-low'] : STATUS_FILL['p-urgent'] })) })}</div>
+      </div>
+      ${renderChart(inc.chart)}
+    </div>
+    <div class="grid two">
+      <div class="card"><h3>메신저 알림</h3><div class="ops-msg">${esc(inc.message)}</div><p class="muted">#오류-대응 채널 자동 알림 미리보기 — 실제 발송은 목업</p></div>
+      <div class="card"><h3>근거 검증</h3>${simpleTable({ head: ['주장', '근거', '판정'], rows: f.검증.map(c => [`${c.판정 === '확인' ? '✔' : '⚠'} ${c.주장}`, c.근거, c.판정]) })}
+        <p class="muted">판정은 규칙 기반 — '확인'이 아닌 주장은 보고서에 추정으로 표기</p></div>
+    </div>
+    <div class="grid two">
+      <div class="card"><h3>로그 변화</h3>${simpleTable({ head: ['구성요소', '분당 로그(전→후)', '변화', '경고·오류'], rows: inc.logs.map(l => [opsName(l.component), `${l.pre} → ${l.post}`, `×${l.ratio}`, `${l.warnErr}줄`]) })}
+        ${f.로그 === '없음' ? '' : `<p class="muted">신규 로그 패턴</p>${f.로그.새_로그_예시.map(t => `<code class="cmd">${esc(t)}</code>`).join('')}`}</div>
+      <div class="card"><h3>참고 런북</h3>${rbs.map(rb => `<details ${rb.id === 'RB-REPORT' ? '' : 'open'}><summary><b>${rb.id}</b> ${esc(rb.title)}</summary><ul class="plain">
+        ${[['증상', rb.symptom], ['흔한 원인', rb.cause], ['1차 확인', rb.check], ['즉시 조치', rb.action], ['재발 방지', rb.prevent]].map(([k, v]) => `<li><b>${k}</b>: ${esc(v)}</li>`).join('')}</ul></details>`).join('')}</div>
+    </div>`;
+}
+
+function viewOps(param) {
+  const list = state.opsIncidents;
+  const inc = (param && list.find(i => i.id === param)) || list[0];
+  const site = opsSite();
+  const opt = (items, cur) => items.map(x => `<option value="${x.id}" ${x.id === cur ? 'selected' : ''}>${esc(x.name)}</option>`).join('');
+  return `
+    <h2>오류 모니터링</h2>
+    <p class="sub">${esc(site.name)} ${esc(site.domain)} · 구성요소 ${opsComponents().length}개 지표·로그 상시 감시(목업) → 오류 감지 시 원인 분석·근거 검증 → 메신저 알림·오류 보고서 자동 생성</p>
+    <div class="card no-print"><div class="toolbar" style="margin:0">
+      <b>오류 시뮬레이션</b>
+      <select id="opsComponent" aria-label="구성요소">${opt(opsComponents(), opsPick.component)}</select>
+      <select id="opsFault" aria-label="오류 유형">${opt(OPS_FAULTS, opsPick.fault)}</select>
+      <button class="small" data-action="ops-simulate">오류 발생 시뮬레이션</button>
+      <span class="muted">합성 지표에 오류 주입 — 호출자 지연 전파·무관 구성요소 방해 스파이크 포함, 원인은 에이전트가 판단</span>
+    </div></div>
+    <div class="grid kpi">${opsComponents().map(c => {
+      const st = inc ? inc.det.status[c.id] : '정상';
+      return `<div class="card"><div class="label">${esc(c.name)}</div><div>${badge(st, OPS_STATUS_CLS[st])}</div><div class="hint">${esc(c.desc)}</div></div>`;
+    }).join('')}</div>
+    ${inc ? opsDetail(inc) : '<div class="card"><p class="empty">감지된 오류 없음 — 위에서 오류 시뮬레이션 실행</p></div>'}
+    ${list.length ? `<div class="card"><h3>오류 이력 (${list.length})</h3><div class="table-wrap"><table>
+      <tr><th>감지 시각</th><th>원인 후보</th><th>추정 유형</th><th>근거 검증</th><th>상태</th><th>보고서</th></tr>
+      ${list.map(i => `<tr${i === inc ? ' class="current"' : ''}><td><a href="#ops/${i.id}">${esc(i.facts.장애_감지_시각)}</a></td><td>${esc(i.facts.원인_후보[0].서비스)}</td><td>${esc(i.facts.추정_장애유형)}</td>
+        <td>${opsVerified(i.facts)}/${i.facts.검증.length} 확인</td><td>${opsOpen(i) ? badge('조치 대기', 'p-high') : badge('조치 완료', 'p-done')}</td><td><a href="#report/log-${i.reportId}">보기</a></td></tr>`).join('')}
+    </table></div></div>` : ''}`;
+}
+
 // ---------- 시뮬레이션 ----------
 function runSimulation() {
   const u = SIM_UPDATES[store.simStep];
@@ -1299,7 +1423,7 @@ function route() {
   const views = {
     todo: viewTodo, dashboard: viewDashboard, chat: viewChat, assets: viewAssets, analysis: p => (p ? viewDetail(p) : viewAnalysis()),
     tasks: viewTasks, report: viewReport, history: viewHistory, tenants: viewTenants, plans: viewPlans,
-    audit: viewAudit, incident: viewIncident,
+    audit: viewAudit, incident: viewIncident, ops: viewOps, mysite: viewMySite,
   };
   $view.innerHTML = (views[view] || viewTodo)(param && decodeURIComponent(param));
   document.querySelectorAll('[data-nav]').forEach(a => a.classList.toggle('active', a.dataset.nav === (views[view] ? view : 'todo')));
@@ -1323,6 +1447,12 @@ document.addEventListener('click', e => {
   switch (el.dataset.action) {
     case 'open': location.hash = detailLink(id); break;
     case 'simulate': runSimulation(); break;
+    case 'ops-simulate': {
+      opsPick = { component: document.getElementById('opsComponent').value, fault: document.getElementById('opsFault').value };
+      const inc = simulateOpsIncident(opsPick.component, opsPick.fault);
+      location.hash = `#ops/${inc.id}`;
+      break;
+    }
     case 'reset':
       try { localStorage.removeItem(STORE_KEY); } catch (err) { /* 무시 */ }
       store = seedStore(); initTenants(); switchTenant('A');
@@ -1430,6 +1560,13 @@ document.addEventListener('click', e => {
     }
     case 'run-schedules': runSchedules(); break;
     case 'switch-tenant': switchTenant(id); location.hash = '#todo'; route(); break;
+    case 'mysite-demo': {
+      const [tid, view] = id.split('|');
+      if (!store.tenants[tid]) break;
+      switchTenant(tid);
+      if (location.hash === `#${view}`) route(); else location.hash = `#${view}`;
+      break;
+    }
     case 'todo-discover':
       discoveryPreview = runDiscovery(discoverySources, state.assets, state.id).filter(f => f.kind !== '확인');
       route();
