@@ -574,3 +574,19 @@ const STARTER_TASKS = [
   { code: 'ST-RETENTION', title: '문의·예약 데이터 보관 기간 확인', reason: '기본값 1년 — 업종 기준과 맞는지 확인' },
   { code: 'ST-CSP', title: 'CSP 보고 전용 → 차단 모드 전환 검토', reason: '2주간 위반 기록 확인 후 전환' },
 ];
+
+// 고객이 외부 빌더·AI 도구로 수정한 뒤 변경 감지 시나리오 (편집 기능은 제공하지 않음)
+// restore: 우리가 넣은 기본값 파일만 되돌리면 되는 경우 → 자동 복원 허용 시 자동 적용
+const STARTER_CHANGES = [
+  { id: 'headers', name: 'AI 코딩 도구로 디자인 재생성 — 보안 헤더 파일 누락', type: '보안', restore: true,
+    detect: '배포 파일 비교: 보안 헤더 파일 없음, 응답 헤더 6종 사라짐',
+    fix: '보안 헤더 파일 기본값 그대로 복원', title: '보안 헤더 파일 복원', priority: '높음', priorityCls: 'p-high' },
+  { id: 'consent', name: '외부 빌더로 폼 디자인 변경 — 개인정보 동의 문구 제거', type: '개인정보',
+    detect: '폼 검사: 이름·연락처를 받는데 수집 동의 체크 없음',
+    fix: '동의 체크 문구 블록 제공 — 고객 디자인 파일에 붙여 넣은 뒤 재배포', title: '폼에 개인정보 수집 동의 문구 다시 넣기', priority: '긴급', priorityCls: 'p-urgent' },
+  { id: 'script', name: '채팅 위젯 추가 — 외부 스크립트 (SRI 없음)', type: '보안', asset: '채팅 위젯 (외부 스크립트)',
+    detect: 'CSP 위반 보고: 허용 목록 밖 스크립트 로드, 무결성 검사(SRI) 없음',
+    fix: 'CSP 허용 목록에 위젯 도메인 추가 + SRI 해시 넣은 스크립트 태그 제공', title: '외부 위젯 스크립트 허용·무결성 설정', priority: '높음', priorityCls: 'p-high' },
+  { id: 'form', name: '접수 처리 코드 수정 — 접수 실패 증가', type: '오류', ops: { component: 'app', fault: 'loss' },
+    detect: '오류 감시: 접수 처리 구성요소 요청 실패 급증' },
+];

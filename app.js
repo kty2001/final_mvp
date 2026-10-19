@@ -1174,7 +1174,15 @@ function viewStarter() {
     ${s ? `<div class="card"><h3>현재 고객사: 스타터로 생성됨 ${badge('관리 연결됨', 'p-done')}</h3>
       <p>${esc(state.site.name)} · ${esc(state.site.domain)} · ${esc(s.template)} · ${esc(s.platform)} · ${esc(s.at)} 생성</p>
       ${curTpl ? `<details><summary>생성된 사이트 화면 보기</summary>${starterMockup(curTpl, { ...state.site, industry: state.industry === '미지정' ? '' : state.industry })}</details>` : ''}
-      <div class="toolbar"><a href="#todo">할 일 →</a><a href="#ops">오류 모니터링 →</a><a href="#assets">자산 →</a></div></div>` : ''}
+      <div class="toolbar"><a href="#todo">할 일 →</a><a href="#ops">오류 모니터링 →</a><a href="#assets">자산 →</a></div></div>
+    <div class="card"><h3>변경 감지 → 자동 보안·오류 대응</h3>
+      <p class="muted">꾸미기는 고객이 다른 빌더·AI 도구로 직접 — 배포가 바뀌면 기본값·오류를 다시 점검하고 대응</p>
+      <label class="check"><input type="checkbox" data-action="starter-autorestore" ${state.site.autoRestore !== false ? 'checked' : ''}> 기본값 파일 자동 복원 허용 <span class="muted">(고객 디자인 파일 수정이 필요한 건은 수정안 + 승인)</span></label>
+      <div class="toolbar">
+        <select id="starterChange">${STARTER_CHANGES.map(c => `<option value="${c.id}">${esc(c.name)}</option>`).join('')}</select>
+        <button class="small" data-action="starter-change">고객 수정 발생 시뮬레이션</button></div>
+      ${(state.site.changes || []).length ? simpleTable({ head: ['감지 시각', '고객 변경', '감지 내용', '대응'],
+        rows: state.site.changes.map(c => [c.at, c.name, c.detect, c.action]) }) : '<p class="muted">감지 이력 없음</p>'}</div>` : ''}
     <div class="card">
       <h3>1. 템플릿·배포 대상 선택</h3>
       <form id="starterForm" class="asset-form">
@@ -1185,7 +1193,7 @@ function viewStarter() {
         <label>배포 대상<select name="platform">${opt(STARTER_PLATFORMS, d?.platform)}</select></label>
         <div class="form-actions"><button type="submit">기본값 미리보기</button></div>
       </form>
-      <p class="muted">디자인 편집기·쇼핑몰·결제는 제공하지 않음 — 만든 뒤 관리가 핵심</p>
+      <p class="muted">템플릿만 제공 — 꾸미기는 다른 빌더·AI 도구로 직접, 바뀐 배포는 변경 감지로 자동 재점검 (편집기·쇼핑몰·결제 없음)</p>
     </div>
     ${d ? `
     <div class="card"><h3>2. 생성될 사이트 화면 — ${esc(tpl.name)}</h3>
@@ -1232,6 +1240,38 @@ function createStarterSite() {
   notify('브리핑', `${d.name} 사이트 배포 완료(시뮬레이션)`, `관리 연결 — 첫 할 일 ${STARTER_TASKS.length}건 등록`, '#todo');
   save();
   location.hash = '#todo';
+  route();
+}
+
+// 고객이 외부 도구로 수정한 배포 감지 → 기본값 복원은 자동, 고객 파일 수정은 수정안 할 일, 오류는 오류 감시로
+function detectStarterChange(changeId) {
+  const c = STARTER_CHANGES.find(x => x.id === changeId);
+  const site = state.site, assetName = `${site.name} 사이트`;
+  const log = action => {
+    (site.changes ||= []).unshift({ at: nowText(), name: c.name, detect: c.detect, action });
+    addHistory('변경 감지', `${site.domain}: ${c.name} — ${action}`);
+  };
+  if (c.ops) {
+    const inc = simulateOpsIncident(c.ops.component, c.ops.fault);
+    log(`오류 감시로 원인 분석·오류 보고서 초안 자동 생성 (${inc.id})`);
+    save();
+    location.hash = `#ops/${inc.id}`;
+    return;
+  }
+  if (c.restore && site.autoRestore !== false) {
+    log(`자동 복원: ${c.fix} — 고객 계정에 재배포(시뮬레이션)`);
+    notify('브리핑', `${site.name}: 보안 기본값 자동 복원`, c.detect, '#starter');
+  } else {
+    if (c.asset && !state.assets.some(a => a.name === c.asset)) {
+      const pf = STARTER_PLATFORMS.find(p => p.name === site.starter.platform);
+      state.assets.push({ id: `${state.id}-${state.assets.length + 1}`, name: c.asset, product: '외부 스크립트', version: '', type: '외부 서비스', criticality: '중', exposure: '예', purpose: `${site.domain}에 고객이 추가`, patch: '확인 필요', owner: '운영자', maintainer: `고객 소유 계정: ${pf?.name || ''}`, verified: { at: today(), source: '변경 감지' } });
+    }
+    addExtraTask({ kind: 'starter', key: `change|${c.id}`, assetName, cveId: c.type, priority: c.priority, priorityCls: c.priorityCls,
+      title: `[변경 감지] ${c.title}`, reason: `${c.detect} → 수정안: ${c.fix}`, refs: ['변경 감지'], link: '#starter' });
+    log(`수정안 생성 → 할 일 등록 (승인 후 재배포)${c.asset ? ` · 자산 '${c.asset}' 자동 등록` : ''}`);
+    notify(c.priority === '긴급' ? '긴급' : '브리핑', `${site.name}: ${c.title}`, c.detect, '#todo');
+  }
+  save();
   route();
 }
 
@@ -1683,6 +1723,8 @@ document.addEventListener('click', e => {
     case 'switch-tenant': switchTenant(id); location.hash = '#todo'; route(); break;
     case 'starter-deploy': if (starterDraft) createStarterSite(); break;
     case 'starter-clear': starterDraft = null; route(); break;
+    case 'starter-change': if (state.site?.starter) detectStarterChange(document.getElementById('starterChange').value); break;
+    case 'starter-autorestore': state.site.autoRestore = el.checked; save(); break;
     case 'mysite-demo': {
       const [tid, view] = id.split('|');
       if (!store.tenants[tid]) break;
