@@ -10,6 +10,8 @@ const PRODUCT_ALIASES = [
   ['MySQL', ['mysql', '마이에스큐엘']],
   ['WordPress', ['wordpress', '워드프레스']],
   ['OpenSSH', ['openssh', 'ssh']],
+  ['하늘그룹웨어', ['하늘그룹웨어']],
+  ['누리ERP', ['누리erp', '누리 erp']],
 ];
 
 const CSV_HEADERS = {
@@ -102,4 +104,49 @@ function parseAssets(text) {
   if (!lines.length) return [];
   const isCsv = lines[0].includes(',') && lines[0].split(',').some(h => CSV_HEADERS[h.trim()] === 'product');
   return isCsv ? parseCsv(lines) : lines.map(parseLine);
+}
+
+// 외부 점검 결과 가져오기: 내서버돌보미·점검 스크립트·스캐너 CSV를 자산 관측값과 설정 점검 항목으로 분리
+const SCAN_HEADERS = {
+  호스트: 'host', host: 'host', 자산명: 'name', name: 'name', 제품: 'product', product: 'product', 버전: 'version', version: 'version',
+  '점검 항목': 'item', 점검항목: 'item', plugin: 'item', cve: 'item', 결과: 'result', risk: 'result',
+};
+const isPublicIp = h => /^\d+\.\d+\.\d+\.\d+$/.test(h) && !/^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/.test(h);
+
+function parseScanResults(text) {
+  const lines = String(text).split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+  if (lines.length < 2) return { observations: [], configs: [], passed: 0 };
+  const fields = lines[0].split(',').map(h => SCAN_HEADERS[h.trim().toLowerCase()] || SCAN_HEADERS[h.trim()] || null);
+  const rows = lines.slice(1).map(line => {
+    const r = {};
+    line.split(',').forEach((v, i) => { if (fields[i]) r[fields[i]] = v.trim(); });
+    return r;
+  });
+  const observations = [], configs = [];
+  let passed = 0;
+  rows.forEach(r => {
+    const found = findProduct(r.product || '');
+    const name = r.name || r.host;
+    const bad = /취약|vulnerable|critical|high|medium/i.test(r.result || '');
+    if (found && !observations.some(o => o.name === name)) {
+      observations.push({
+        name, product: found.product, version: r.version || '', exposure: isPublicIp(r.host || '') ? '예' : undefined,
+        evidence: `${r.host} — 점검 결과 ${r.product} ${r.version || ''}${isPublicIp(r.host || '') ? ' (공인 IP)' : ''}`,
+      });
+    }
+    if (r.item && !/^CVE-/i.test(r.item) && bad) configs.push({ name, item: r.item, result: r.result });
+    else if (!bad) passed++;
+  });
+  return { observations, configs, passed };
+}
+
+// 한국어 공지 구조화(LLM 추출 목업): 필드별 원문 인용을 원문과 대조해 인용 검증, 지시성 문장은 데이터로만 취급
+function extractKrAdvisory(ad) {
+  const e = ad.extract, q = ad.quotes;
+  const fields = [
+    ['제품', ad.product, ad.product], ['취약점', e.title, q.title], ['영향 버전', `${e.from} 이상 ${e.fixed} 미만`, q.range],
+    ['해결 버전', e.fixed, q.fixed], ['위험도', e.severity, q.severity], ['완화 조치', e.mitigation, q.mitigation],
+  ].map(([field, value, quote]) => ({ field, value, quote, verified: ad.raw.includes(quote) }));
+  const flagged = ad.raw.split(/(?<=\.)\s+/).filter(s => INSTRUCTION_PATTERN.test(s));
+  return { fields, flagged, verified: fields.filter(f => f.verified).length };
 }

@@ -24,7 +24,15 @@ const norm = s => String(s || '').trim().toLowerCase();
 const rangeText = v => `${v.affected.from} 이상 ${v.affected.fixed} 미만`;
 const severity = c => (c >= 9 ? 'CRITICAL' : c >= 7 ? 'HIGH' : c >= 4 ? 'MEDIUM' : 'LOW');
 
+// 국산 SW 공지(CVSS 미부여)의 위험도 등급을 심각도 점수로 환산하는 규칙표
+const KR_SEVERITY = { 긴급: 9.0, 높음: 7.5, 보통: 5.0, 낮음: 3.0 };
+const cvssText = v => (v.kr ? `공지 위험도 ${v.kr.severity}` : `CVSS ${v.cvss.toFixed(1)}`);
+
 function getSources(v) {
+  if (v.kr) {
+    return [{ ref: v.kr.ref, name: v.kr.source, url: v.vendorUrl, collectedAt: v.updatedAt,
+      fact: `공지 위험도 ${v.kr.severity} (CVSS 미부여 — 규칙표로 ${v.cvss.toFixed(1)} 환산), 영향 버전 ${rangeText(v)}, ${v.affected.fixed}에서 해결. 완화 조치: ${v.mitigation}` }];
+  }
   const list = [
     { ref: 'NVD', name: 'NVD / CVE', url: 'https://nvd.nist.gov/', fact: `CVSS ${v.cvss.toFixed(1)} (${severity(v.cvss)}) — ${v.summary}` },
   ];
@@ -52,9 +60,12 @@ function assess(asset, v) {
   if (!match) return null;
 
   const factors = [
-    { name: '기술적 심각도', value: `CVSS ${v.cvss.toFixed(1)}`, points: v.cvss >= 9 ? 30 : v.cvss >= 7 ? 22 : v.cvss >= 4 ? 12 : 5, ref: 'NVD' },
+    { name: '기술적 심각도', value: v.kr ? `${cvssText(v)} (환산 ${v.cvss.toFixed(1)})` : cvssText(v), points: v.cvss >= 9 ? 30 : v.cvss >= 7 ? 22 : v.cvss >= 4 ? 12 : 5, ref: v.kr ? v.kr.ref : 'NVD' },
     { name: '실제 악용 여부', value: v.kev ? 'KEV 등재' : 'KEV 미등재', points: v.kev ? 25 : 0, ref: 'KEV' },
-    { name: '악용 가능성 추정', value: `EPSS ${v.epss.toFixed(2)}`, points: v.epss >= 0.5 ? 15 : v.epss >= 0.1 ? 8 : 2, ref: 'EPSS' },
+    // EPSS 미제공(국산 SW)은 노출 미확인과 같은 중간값 처리
+    v.epss == null
+      ? { name: '악용 가능성 추정', value: 'EPSS 없음', points: 8, ref: '-' }
+      : { name: '악용 가능성 추정', value: `EPSS ${v.epss.toFixed(2)}`, points: v.epss >= 0.5 ? 15 : v.epss >= 0.1 ? 8 : 2, ref: 'EPSS' },
     { name: '자산 중요도', value: asset.criticality, points: { 상: 15, 중: 8, 하: 2 }[asset.criticality] ?? 8, ref: '등록 자산' },
     { name: '외부 노출', value: asset.exposure, points: { 예: 15, 미확인: 8, 아니오: 0 }[asset.exposure] ?? 8, ref: '등록 자산' },
   ];
@@ -63,7 +74,7 @@ function assess(asset, v) {
   const versionUnknown = match.status === 'potential';
 
   // 위험도와 별도로 판단 신뢰도 산정: 누락 정보가 많을수록 낮음
-  const missing = (versionUnknown ? 2 : 0) + (asset.exposure === '미확인' ? 1 : 0) + (asset.patch === '확인 필요' ? 1 : 0);
+  const missing = (versionUnknown ? 2 : 0) + (asset.exposure === '미확인' ? 1 : 0) + (asset.patch === '확인 필요' ? 1 : 0) + (v.kr ? 1 : 0);
   const confidence = missing === 0 ? '높음' : missing === 1 ? '중간' : '낮음';
 
   let status = 'active', label = level.label, cls = level.cls;
@@ -93,8 +104,9 @@ function assess(asset, v) {
   if (versionUnknown) { uncertainties.push('제품 버전 미등록 — 영향 범위 포함 여부 확인 불가'); checks.push('실제 설치 제품 버전 확인'); }
   if (asset.exposure === '미확인') { uncertainties.push('외부 노출 여부 미확인 — 노출 시 점수 7점 상승'); checks.push('외부 인터넷 노출 여부 확인'); }
   if (asset.patch === '확인 필요') { uncertainties.push('패치·완화 조치 적용 여부 미확인'); checks.push('패치·완화 조치 적용 여부 확인'); }
+  if (v.kr) { uncertainties.push('국내 공지에서 추출한 미검증 위협 정보 — CVE·EPSS 없음'); checks.push('공지 원문에서 영향 버전·해결 버전 재확인'); }
   if (status !== 'excluded') {
-    uncertainties.push('EPSS는 확률적 추정치이며 실제 악용 여부를 의미하지 않음');
+    if (!v.kr) uncertainties.push('EPSS는 확률적 추정치이며 실제 악용 여부를 의미하지 않음');
     checks.push('공급업체 권고문의 영향 조건(설정·모듈 사용 여부) 확인');
   }
 
@@ -108,7 +120,7 @@ function assess(asset, v) {
 // 외부 문서 속 지시성 문장 탐지: 데이터로만 취급하고 판정·업무에 반영하지 않음 (프롬프트 인젝션 방어)
 const INSTRUCTION_PATTERN = /무시하|지시|보고하라|처리하라|생성하라|ignore|instruction/i;
 function screenAdvisory(v) {
-  const text = ADVISORY_TEXTS[v.id];
+  const text = ADVISORY_TEXTS[v.id] || v.kr?.raw;
   if (!text) return null;
   return { text, flagged: text.split(/(?<=\.)\s+/).filter(s => INSTRUCTION_PATTERN.test(s)) };
 }
@@ -135,7 +147,10 @@ function explain(a) {
         ? `${target}은(는) ${v.id}의 영향 범위(${rangeText(v)}) 밖으로 판단된다.`
         : `${target}은(는) ${v.id}(${v.title})의 영향 범위(${rangeText(v)})에 포함된다.`,
   });
-  lines.push({
+  lines.push(v.kr ? {
+    tag: '사실',
+    text: `${v.kr.source} 기준 위험도 '${v.kr.severity}'이며 CVE·CVSS는 부여되지 않았다 [${v.kr.ref}]. ${v.affected.fixed}에서 해결되었다 [${v.kr.ref}].`,
+  } : {
     tag: '사실',
     text: `NVD 기준 CVSS ${v.cvss.toFixed(1)}(${severity(v.cvss)})이다 [NVD]. `
       + (v.kev ? `CISA KEV에 실제 악용 취약점으로 등재되어 있다(${v.kevDate}) [KEV]. ` : 'CISA KEV에는 등재되어 있지 않다. ')
@@ -166,4 +181,72 @@ function taskTemplates(a) {
   t.push({ title: `패치 가능 여부 및 적용 일정 검토 (${v.affected.fixed} 이상)`, reason: '근본 조치', refs: ['공급업체'] });
   t.push({ title: '패치 전 백업 및 서비스 영향 확인', reason: '운영 영향 최소화 — 담당자 검토·승인 후 진행', refs: ['등록 자산'] });
   return t;
+}
+
+// 영향 조건 확인(LLM 해석 목업): 사용자가 붙여 넣은 읽기 전용 명령 출력을 규칙으로 해석, 근거 없으면 단정하지 않음
+function interpretCheck(spec, output) {
+  const text = String(output || '').trim();
+  if (!text) return null;
+  const hit = spec.rules.find(r => r.re.test(text));
+  return hit ? { verdict: hit.verdict, reason: hit.reason } : { verdict: '판단 불가', reason: '출력에서 조건 판단 근거를 찾지 못함 — 담당자 직접 확인 필요' };
+}
+
+// 외주 업체 요청 메일 초안(LLM 문장 작성 목업) — 기한은 우선순위별 규칙
+const DUE_DAYS = { 긴급: 3, 높음: 7, 보통: 30, 낮음: 30 };
+const vendorName = asset => (/업체|벤더/.test(asset.maintainer || '') ? asset.maintainer.replace(/^(유지보수 업체|벤더):\s*/, '') : '유지보수 업체(미등록)');
+
+function vendorRequestDraft(a, due) {
+  const { asset, vuln: v } = a;
+  const to = vendorName(asset);
+  return {
+    to, subject: `[보안 패치 요청] ${asset.name} — ${v.id}`,
+    body: [
+      `${to} 담당자님께`,
+      `${asset.name}(${asset.product} ${asset.version || '버전 확인 필요'})에서 보안 취약점 ${v.id}(${v.title})이 확인되어 패치 작업을 요청드립니다.`,
+      `· 해결 버전: ${v.affected.fixed} 이상`,
+      `· 패치 전 임시 조치: ${v.mitigation}`,
+      `· 우선순위: ${a.priority} — ${due}까지 작업 일정 회신 요청`,
+      `· 근거 출처: ${a.facts.map(f => f.ref).join(', ')}`,
+      '작업 일정과 담당자를 회신해 주시면 조치 업무에 반영하겠습니다.',
+    ],
+  };
+}
+
+// 업체 회신 해석(LLM 추출 목업): 작업 날짜·시각·작업자와 근거 문장
+const WEEKDAYS = '일월화수목금토';
+function parseVendorReply(text, base) {
+  const t = String(text || '');
+  let date = null, m;
+  if ((m = t.match(/\d{4}-\d{2}-\d{2}/))) date = m[0];
+  else if ((m = t.match(/(\d{1,2})월\s*(\d{1,2})일/))) date = `${base.slice(0, 4)}-${m[1].padStart(2, '0')}-${m[2].padStart(2, '0')}`;
+  else if ((m = t.match(/(다음|이번)\s*주\s*([일월화수목금토])요일/))) {
+    const cur = new Date(`${base}T00:00:00`).getDay();
+    const toMonday = m[1] === '다음' ? ((8 - cur) % 7 || 7) : -((cur + 6) % 7);
+    date = addDays(base, toMonday + (WEEKDAYS.indexOf(m[2]) + 6) % 7);
+  } else if ((m = t.match(/내일|모레/))) date = addDays(base, m[0] === '내일' ? 1 : 2);
+  const time = (t.match(/(\d{1,2})시/) || [])[1];
+  const w = t.match(/담당(?:자)?\s*[:：]?\s*([가-힣]{2,4})\s*(기사|과장|대리|팀장|책임|선임|엔지니어)?/);
+  const quote = m ? t.split(/(?<=[.!?])\s+/).find(s => s.includes(m[0])) : null;
+  return { date, time: time ? `${time.padStart(2, '0')}:00` : null, worker: w ? `${w[1]}${w[2] ? ` ${w[2]}` : ''}` : null, quote };
+}
+
+// 증빙 기반 조치 종결: 증빙 속 버전을 해결 버전과 비교 (규칙 판정)
+const VERSION_CMD = {
+  'Apache HTTP Server': 'httpd -v', FortiOS: 'get system status', Jenkins: 'java -jar jenkins-cli.jar version', MySQL: 'mysql --version',
+  nginx: 'nginx -v', OpenSSH: 'ssh -V', WordPress: 'wp core version', 'Apache Tomcat': 'version.sh',
+};
+function fixedVersionOf(product, vulns) {
+  const fixed = vulns.filter(v => norm(v.product) === norm(product)).map(v => v.affected.fixed);
+  return fixed.length ? fixed.sort(compareVersion).pop() : null;
+}
+function evidenceVerdict(text, product, vulns) {
+  const t = String(text || '').trim();
+  if (!t) return { ok: false, label: '증빙 없음', detail: '증빙 입력 필요 — 증빙 없이 종결 불가' };
+  const fixed = fixedVersionOf(product, vulns);
+  const found = t.match(/\d+(?:\.\d+)+/g) || [];
+  if (!found.length || !fixed) return { ok: true, label: '담당자 확인', detail: '증빙에서 버전을 확인하지 못함 — 설정 변경 등 담당자 확인으로 기록' };
+  const ver = found[found.length - 1];
+  return compareVersion(ver, fixed) >= 0
+    ? { ok: true, label: '해결 버전 확인', detail: `증빙 버전 ${ver} ≥ 해결 버전 ${fixed}` }
+    : { ok: false, label: '해결 버전 미만', detail: `증빙 버전 ${ver} < 해결 버전 ${fixed} — 패치 미완료로 판단, 반영 불가` };
 }

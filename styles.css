@@ -216,3 +216,8 @@ label.check { display: block; margin: 4px 0; font-size: 13px; }
 .todo-card details { margin: 6px 0; font-size: 13px; }
 .todo-card details p { margin: 4px 0; }
 .todo-check { border: 1px solid #f0d58c; background: #fffbf0; }
+
+/* 기획안 5-5·5-6 목업 */
+.cmd { display: block; margin: 0 0 6px; padding: 6px 10px; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; font: 12px/1.5 Consolas, ui-monospace, monospace; white-space: pre-wrap; word-break: break-all; }
+.evidence { margin: 8px 0; padding: 10px 12px; border: 1px dashed var(--line); border-radius: 8px; }
+.evidence textarea, .card textarea[data-cond-output], .card textarea[data-vendor-reply] { width: 100%; margin-top: 6px; }

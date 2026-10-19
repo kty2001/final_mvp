@@ -5,6 +5,7 @@ const AGENT_EXAMPLES = [
   '지금 제일 급한 거 뭐야?', 'VPN 관련 위협 정리해줘', 'Jenkins 건은 왜 긴급이야?', '버전 확인 필요한 자산 알려줘',
   '등급별 위험 분포 보여줘', '지난 8주 추이 보여줘', '고객사별 현황 비교해줘',
   '미확인 정보 채워줘', '자산 등록: 영업팀 파일 서버 톰캣 9.0.90 외부 공개', '이번 주 경영진 보고서 만들어줘',
+  '원청 점검표 작성해줘', '받을 수 있는 정부 지원사업 알려줘',
 ];
 const GENERIC_TOKENS = new Set(['서버', '사내', '내부']);
 
@@ -19,7 +20,7 @@ function findTargets(text, list) {
 }
 
 function reasonShort(a) {
-  return [a.vuln.kev && 'KEV 등재', `CVSS ${a.vuln.cvss.toFixed(1)}`, a.asset.exposure === '예' && '외부 노출', a.asset.criticality === '상' && '핵심 자산', a.confidence !== '높음' && `신뢰도 ${a.confidence}`]
+  return [a.vuln.kev && 'KEV 등재', cvssText(a.vuln), a.asset.exposure === '예' && '외부 노출', a.asset.criticality === '상' && '핵심 자산', a.confidence !== '높음' && `신뢰도 ${a.confidence}`]
     .filter(Boolean).join(', ');
 }
 
@@ -48,6 +49,32 @@ function agentRespond(text) {
   const has = re => re.test(text);
   const taskAction = a => (a.status === 'active' && !state.tasks.some(t => t.key === a.key)
     ? { type: 'create-tasks', key: a.key, label: '승인 — 조치 업무 생성' } : null);
+
+  if (has(/점검표|점검 양식|협력사 점검|자가진단/)) {
+    const form = AUDIT_FORMS.find(f => has(/자가진단|공급망|kisa/i) ? f.id === 'kisa' : f.id === 'prime');
+    const rows = call('parse_checklist_form', form.short, () => fillAuditForm(form), r => `항목 ${r.length}건 분해·근거 대조`);
+    const cnt = s => rows.filter(r => r.status === s).length;
+    return res({
+      text: [`'${form.name}' 답변 초안 작성 — 충족 ${cnt('충족')} · 부분 ${cnt('부분')} · 갭 ${cnt('갭')} · 작성 필요 ${cnt('작성 필요')}.`,
+        '충족은 근거 기록이 연결된 항목만 표기. 갭은 할 일로 등록 가능하며 제출본 저장은 승인 후 실행함.'],
+      link: { href: '#audit', label: '점검 대응 열기' },
+    });
+  }
+
+  if (has(/지원\s*사업|정부 지원/)) {
+    const list = call('match_programs', `임직원 ${state.profile.employees}명`, () => matchPrograms(), r => `대상 ${r.filter(p => p.eligible).length}건`);
+    return res({
+      text: [`회사 조건 기준 신청 가능 사업 ${list.filter(p => p.eligible).length}건:`, ...list.filter(p => p.eligible).map(p => `· ${p.name} (${p.org}) — ${p.benefit}`), '지원 조건·일정은 공고별로 다르므로 확인 필요.'],
+      link: { href: '#plans', label: '지원사업·신청 자료 열기' },
+    });
+  }
+
+  if (has(/사고|침해|해킹|랜섬|감염/) && !has(/왜|이유/)) {
+    return res({
+      text: [INCIDENT_FIRST, '사고 대응 화면에서 유형을 고르면 첫 대응 체크리스트·신고 기한·신고서 초안을 정리함.'],
+      link: { href: '#incident', label: '사고 대응 열기' },
+    });
+  }
 
   if (has(/보고서|리포트|report/i)) {
     const type = has(/이행|감사|증적|조치 현황/) ? 'compliance' : has(/상세|실무/) ? 'detail' : 'exec';

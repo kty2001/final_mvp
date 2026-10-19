@@ -18,21 +18,24 @@ function inferPatch(product, version) {
 
 function runDiscovery(sourceIds, assets, tenantId) {
   const observed = (DISCOVERY_RESULTS[tenantId] || DISCOVERY_RESULTS.default).filter(o => sourceIds.includes(o.source));
-  return observed.map(o => {
-    const base = { name: o.name, source: DISCOVERY_SOURCES.find(s => s.id === o.source).name, evidence: o.evidence, changes: [] };
-    const cur = assets.find(a => a.name === o.name);
-    if (!cur) {
-      const asset = parseLine(`${o.name} ${o.product} ${o.version || ''}`).asset;
-      Object.assign(asset, { name: o.name, product: o.product, version: o.version || '', exposure: o.exposure || asset.exposure });
-      asset.patch = inferPatch(asset.product, asset.version) || asset.patch;
-      return { ...base, kind: '신규', asset };
-    }
-    const next = { version: o.version || cur.version, exposure: o.exposure || cur.exposure };
-    if (cur.patch === '확인 필요' || next.version !== cur.version) next.patch = inferPatch(cur.product, next.version) || cur.patch;
-    const changes = Object.entries(next).filter(([k, v]) => v && v !== (cur[k] || '')).map(([field, to]) => ({ field, from: cur[field] || '', to }));
-    const filled = c => !c.from || c.from === '미확인' || c.from === '확인 필요';
-    return { ...base, assetId: cur.id, changes, kind: !changes.length ? '확인' : changes.every(filled) ? '보완' : '변경' };
-  });
+  return observed.map(o => classifyObservation(o, assets, DISCOVERY_SOURCES.find(s => s.id === o.source).name));
+}
+
+// 관측값 1건을 등록 자산과 대조 — 자동 탐색·외부 점검 결과 가져오기 공용
+function classifyObservation(o, assets, sourceName) {
+  const base = { name: o.name, source: sourceName, evidence: o.evidence, changes: [] };
+  const cur = assets.find(a => a.name === o.name);
+  if (!cur) {
+    const asset = parseLine(`${o.name} ${o.product} ${o.version || ''}`).asset;
+    Object.assign(asset, { name: o.name, product: o.product, version: o.version || '', exposure: o.exposure || asset.exposure });
+    asset.patch = inferPatch(asset.product, asset.version) || asset.patch;
+    return { ...base, kind: '신규', asset };
+  }
+  const next = { version: o.version || cur.version, exposure: o.exposure || cur.exposure };
+  if (cur.patch === '확인 필요' || next.version !== cur.version) next.patch = inferPatch(cur.product, next.version) || cur.patch;
+  const changes = Object.entries(next).filter(([k, v]) => v && v !== (cur[k] || '')).map(([field, to]) => ({ field, from: cur[field] || '', to }));
+  const filled = c => !c.from || c.from === '미확인' || c.from === '확인 필요';
+  return { ...base, assetId: cur.id, changes, kind: !changes.length ? '확인' : changes.every(filled) ? '보완' : '변경' };
 }
 
 function describeFinding(f) {

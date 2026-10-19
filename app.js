@@ -1,6 +1,6 @@
 // 화면 렌더링·상태 관리 (브라우저 localStorage 저장, 고객사별 데이터 분리)
 
-const STORE_KEY = 'cti-mvp-v2';
+const STORE_KEY = 'cti-mvp-v3';
 const clone = o => JSON.parse(JSON.stringify(o));
 const $view = document.getElementById('view');
 const PRODUCTS = [...new Set(VULNS.map(v => v.product))];
@@ -20,10 +20,23 @@ let overrideError = '';
 let formDraft = null;
 let discoveryPreview = null;
 let discoverySources = DISCOVERY_SOURCES.map(s => s.id);
+let auditFormId = null;   // 점검 대응: 작성 중인 양식
+let krPreview = null;     // 국내 공지 추출 미리보기 (공지 id)
+let scanText = '';
+let scanSource = '';
+let scanPreview = null;   // 외부 점검 결과 분석 결과
+let condDraft = {};       // 영향 조건 확인: key → { output, result }
+let vendorDraft = {};     // 외주 업체 회신: key → { reply, parsed }
+let evidenceDraft = null; // 조치 증빙 입력: { assetId, type, text, error }
 
 const pad = n => String(n).padStart(2, '0');
-function today() { const d = new Date(); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; }
+const ymd = d => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+function today() { return ymd(new Date()); }
 function nowText() { const d = new Date(); return `${today()} ${pad(d.getHours())}:${pad(d.getMinutes())}`; }
+function nowLocal() { return nowText().replace(' ', 'T'); }
+function addDays(date, n) { const d = new Date(`${date}T00:00:00`); d.setDate(d.getDate() + n); return ymd(d); }
+const daysBetween = (a, b) => Math.round((new Date(`${b}T00:00:00`) - new Date(`${a}T00:00:00`)) / 86400000);
+const ddayText = n => (n > 0 ? `D-${n}` : n === 0 ? 'D-day' : `D+${-n}`);
 function esc(s) { return String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
 const badge = (label, cls) => `<span class="badge ${cls}">${esc(label)}</span>`;
 const detailLink = key => `#analysis/${encodeURIComponent(key)}`;
@@ -38,6 +51,9 @@ function seedTenant(seed) {
     assets: clone(seed.assets), trend: clone(seed.trend), tasks: [], history: [], snapshot: {}, seq: 100,
     overrides: {}, notifications: [], reportLog: [], schedules: clone(seed.schedules || DEFAULT_SCHEDULES),
     onboarding: seed.onboarding || null,
+    profile: clone(seed.profile || DEFAULT_PROFILE),
+    dutyDue: Object.fromEntries(DUTIES.map(d => [d.id, addDays(today(), d.firstDueIn)])), dutyLog: [],
+    conditionChecks: {}, vendorRequests: {}, decisions: {}, incident: null, incidents: [],
   };
 }
 function linkShared(s) {
@@ -45,7 +61,7 @@ function linkShared(s) {
   return s;
 }
 function seedStore() {
-  const s = { current: 'A', simStep: 0, vulns: clone(VULNS), feed: clone(SEED_FEED), tenants: {} };
+  const s = { current: 'A', simStep: 0, vulns: clone(VULNS), feed: clone(SEED_FEED), krIngested: [], tenants: {} };
   SEED_TENANTS.forEach(seed => { s.tenants[seed.id] = seedTenant(seed); });
   return linkShared(s);
 }
@@ -68,6 +84,7 @@ function switchTenant(id) {
   state = store.tenants[id];
   chatLog = []; intakePreview = null; intakeText = ''; editingAssetId = null; formError = ''; notifOpen = false;
   formDraft = null; discoveryPreview = null;
+  auditFormId = null; krPreview = null; scanText = ''; scanPreview = null; condDraft = {}; vendorDraft = {}; evidenceDraft = null;
   save();
 }
 function initTenants() {
@@ -201,11 +218,64 @@ function todoCard(a) {
       ? `<ul class="checklist">${tasks.map(t => `<li><label><input type="checkbox" data-todo-task="${t.id}" ${t.status === '완료' ? 'checked' : ''}> ${esc(t.title)}</label>${t.autoClosed ? ' <span class="chip">자동 종결</span>' : ''}</li>`).join('')}</ul>`
       : `<ul class="checklist draft">${taskTemplates(a).slice(0, 3).map(t => `<li>${esc(t.title)}</li>`).join('')}</ul>
         <button class="small" data-action="create-tasks" data-id="${esc(a.key)}">할 일로 등록</button>`}
-    ${allDone ? `<p class="muted">할 일 완료 — 패치 반영 시 목록에서 빠짐 <button class="small ghost" data-action="mark-patched" data-id="${a.asset.id}">패치 적용 완료로 반영</button></p>` : ''}
+    ${allDone ? (evidenceDraft?.assetId === a.asset.id ? evidenceForm(a.asset)
+      : `<p class="muted">할 일 완료 — 패치 반영 시 목록에서 빠짐 <button class="small ghost" data-action="evidence-open" data-id="${a.asset.id}">패치 적용 완료로 반영</button></p>`) : ''}
     <details><summary>에이전트 설명</summary>${lines.map(l => `<p><span class="t t-${l.tag}">${l.tag}</span>${esc(l.text)}</p>`).join('')}
       ${citationNote(verifyCitations(lines.map(l => l.text), [a]))}</details>
     <a href="${detailLink(a.key)}">근거·What-if 보기 →</a>
+    ${CONDITION_CHECKS[a.vuln.id] ? ` · <a href="${detailLink(a.key)}">영향 조건 확인 (오탐 줄이기) →</a>` : ''}
   </div>`;
+}
+
+// 증빙 기반 조치 종결: 증빙 없이는 패치 완료 반영 불가
+function evidenceForm(asset) {
+  const d = evidenceDraft;
+  return `<div class="evidence">
+    <b>조치 증빙</b> <span class="muted">증빙 없이 종결 불가 — 조치 이행 보고서·점검 양식 근거로 사용</span>
+    <div class="inline-form"><select id="evType">${['버전 확인 출력', '설정 화면 캡처(파일명)', '외부 배너 재확인'].map(t => `<option ${t === d.type ? 'selected' : ''}>${t}</option>`).join('')}</select>
+      <button class="small ghost" data-action="evidence-sample" data-id="${asset.id}">예시 입력</button></div>
+    <textarea id="evText" rows="3" placeholder="예: ${esc(VERSION_CMD[asset.product] || '버전 확인 명령')} 출력 붙여넣기">${esc(d.text)}</textarea>
+    ${d.error ? `<p class="error">${esc(d.error)}</p>` : ''}
+    <div class="toolbar"><button class="small" data-action="mark-patched" data-id="${asset.id}">증빙 확인 후 반영</button>
+      <button class="small ghost" data-action="evidence-cancel">취소</button></div>
+  </div>`;
+}
+
+// 비취약점 할 일 (점검 갭·점검 결과·계약 만료)
+function extraTaskCard() {
+  const open = state.tasks.filter(t => t.kind && t.status !== '완료');
+  if (!open.length) return '';
+  return `<section class="todo-group"><h3>점검·계약 할 일 (${open.length}) <span class="muted">취약점 외 업무</span></h3><div class="card">
+    <ul class="checklist">${open.map(t => `<li><label><input type="checkbox" data-todo-task="${t.id}"> ${esc(t.title)}</label> <a class="muted" href="${t.link}">${esc(t.assetName)}</a></li>`).join('')}</ul></div></section>`;
+}
+
+function dutyCard() {
+  const list = applicableDuties();
+  if (!list.length) return '';
+  const cls = n => (n < 0 ? 'p-urgent' : n <= 14 ? 'p-high' : 'p-low');
+  return `<section class="todo-group"><h3>보안 의무 일정 (${list.length}) <span class="muted">회사 조건 기준 · <a href="#plans">조건 변경</a></span></h3><div class="card">
+    <ul class="checklist">${list.map(d => `<li><label><input type="checkbox" data-duty-done="${d.id}"> ${esc(d.title)}</label> ${badge(ddayText(d.dday), cls(d.dday))}
+      <span class="muted">${d.due} · ${esc(d.cycle)} · ${esc(d.basis)}</span>${d.link ? ` <a href="${d.link}">바로 가기 →</a>` : ''}</li>`).join('')}</ul>
+    <p class="muted">완료 체크 시 이행 기록 저장 후 다음 기한으로 이동 — 이행 기록은 점검 양식 근거로 사용</p></div></section>`;
+}
+
+function contractCard() {
+  const list = contractAlerts();
+  if (!list.length) return '';
+  return `<section class="todo-group"><h3>계약·단종 임박 (${list.length}) <span class="muted">60일 이내</span></h3><div class="card"><ul class="plain">${list.map(c => {
+    const has = state.tasks.some(t => t.key === `contract|${c.asset.id}|${c.kind}`);
+    return `<li>${badge(ddayText(c.dday), c.dday < 0 ? 'p-urgent' : 'p-high')} <b>${esc(c.asset.name)}</b> ${esc(c.kind)} ${c.date} <span class="muted">${esc(c.asset.maintainer || '자사')}</span>
+      ${has ? '<span class="chip">할 일 등록됨</span>' : `<button class="small ghost" data-action="contract-task" data-id="${c.asset.id}" data-kind="${esc(c.kind)}">할 일로 등록</button>`}</li>`;
+  }).join('')}</ul></div></section>`;
+}
+
+function decisionList(list) {
+  const decisions = decisionRequests(list);
+  if (!decisions.length) return '';
+  return `<p><b>대표 결정 요청 ${decisions.length}건</b> <span class="muted">보고서에 포함 — 대표는 메일에서 회신 (목업: 아래 버튼으로 회신 시뮬레이션)</span></p>
+    <ul class="plain">${decisions.map(d => `<li>${esc(d.title)} <span class="muted">${esc(d.ask)} · 영향: ${esc(d.impact)}</span>
+      ${d.reply ? badge(`${d.reply.status} ${d.reply.at.slice(5)}`, d.reply.status === '승인' ? 'p-done' : 'p-none')
+        : `<button class="small ghost" data-action="decide" data-id="${esc(d.id)}" data-reply="승인">대표 회신: 승인</button> <button class="small ghost" data-action="decide" data-id="${esc(d.id)}" data-reply="보류">보류</button>`}</li>`).join('')}</ul>`;
 }
 
 function checkCard(list) {
@@ -249,9 +319,13 @@ function viewTodo() {
         : `<section class="todo-group"><h3>${g.title} (${items.length}) <span class="muted">${g.hint}</span></h3>${body}</section>`;
     }).join('')}
     ${active.length ? '' : '<div class="card"><p class="empty">대응할 위협 없음</p></div>'}
+    ${extraTaskCard()}
+    ${dutyCard()}
+    ${contractCard()}
     <div class="card">
       <h3>대표 보고</h3>
       <p>${esc(report.summary)}</p>
+      ${decisionList(list)}
       <div class="toolbar"><a href="#report/exec">미리보기 →</a>
         <button class="small" data-action="send-exec">이번 주 보고 보내기 (목업)</button>
         <span class="muted">수신 ${esc(state.schedules.exec.to)}${sent ? ` · 최근 발송 ${sent.generatedAt}` : ''}</span></div>
@@ -304,7 +378,7 @@ function viewDashboard() {
           <tr><th>CVE</th><th>제품</th><th>CVSS</th><th>EPSS</th><th>악용</th><th>관련 자산</th></tr>
           ${vulns.map(v => {
             const n = list.filter(a => a.vuln.id === v.id && a.status !== 'excluded').length;
-            return `<tr><td>${v.id}<div class="muted">${esc(v.title)}</div></td><td>${esc(v.product)}</td><td class="num">${v.cvss.toFixed(1)}</td><td class="num">${v.epss.toFixed(2)}</td><td>${v.kev ? badge('KEV', 'kev') : '-'}</td><td class="num">${n || '<span class="muted">없음</span>'}</td></tr>`;
+            return `<tr><td>${v.id}<div class="muted">${esc(v.title)}</div></td><td>${esc(v.product)}</td><td class="num">${v.kr ? `공지 ${esc(v.kr.severity)}` : v.cvss.toFixed(1)}</td><td class="num">${v.epss == null ? '-' : v.epss.toFixed(2)}</td><td>${v.kev ? badge('KEV', 'kev') : '-'}</td><td class="num">${n || '<span class="muted">없음</span>'}</td></tr>`;
           }).join('')}
         </table></div>
       </div>
@@ -312,7 +386,36 @@ function viewDashboard() {
         <h3>위협 정보 변경 내역</h3>
         <ul class="timeline">${state.feed.map(f => `<li><span class="time">${f.time}</span><span>${esc(f.text)}</span></li>`).join('')}</ul>
       </div>
-    </div>`;
+    </div>
+    ${krCard()}`;
+}
+
+// 국산 SW·한국어 공지 구조화: 추출 → 원문 인용 검증·지시성 문장 검사 → 승인 시 위협 정보 추가
+function krCard() {
+  return `<div class="card">
+    <h3>국내 공지 구조화 (국산 SW · 한국어 공지)</h3>
+    <p class="muted">CVE·CPE가 없는 국산 소프트웨어 공지에서 제품·버전·조치를 추출해 위협 정보로 추가 — 필드별 원문 인용 검증, 추가는 승인 후 (목업: 추출은 LLM 대체 데이터)</p>
+    <ul class="plain">${KR_ADVISORIES.map(ad => `<li><b>${esc(ad.product)}</b> <span class="muted">${esc(ad.source)} · ${ad.published}</span>
+      ${store.krIngested.includes(ad.id) ? badge('위협 정보 추가됨', 'p-done') : `<button class="small ghost" data-action="kr-extract" data-id="${ad.id}">에이전트 추출</button>`}</li>`).join('')}</ul>
+    ${krPreview ? krPreviewHtml(KR_ADVISORIES.find(x => x.id === krPreview)) : ''}
+  </div>`;
+}
+
+function krPreviewHtml(ad) {
+  const r = extractKrAdvisory(ad);
+  const hits = Object.values(store.tenants).map(t => t.assets.filter(a => norm(a.product) === norm(ad.product)).length);
+  return `<blockquote class="advisory">${ad.raw.split(/(?<=\.)\s+/).map(s => (r.flagged.includes(s) ? `<mark>${esc(s)}</mark>` : esc(s))).join(' ')}</blockquote>
+    <div class="table-wrap"><table><tr><th>필드</th><th>추출값</th><th>원문 인용</th><th>인용 검증</th></tr>
+      ${r.fields.map(f => `<tr><td>${f.field}</td><td>${esc(f.value)}</td><td class="muted">"${esc(f.quote)}"</td><td>${f.verified ? badge('원문 일치', 'p-done') : badge('원문 없음', 'p-urgent')}</td></tr>`).join('')}
+    </table></div>
+    <p class="muted">인용 검증 ${r.verified}/${r.fields.length} · 위험도 '${esc(ad.extract.severity)}' → 규칙표 환산 ${KR_SEVERITY[ad.extract.severity].toFixed(1)} · EPSS 없음 · 미검증 위협 정보로 신뢰도 감점 · 매칭 예상: 고객사 ${hits.filter(Boolean).length}곳 자산 ${hits.reduce((s, n) => s + n, 0)}건</p>
+    ${r.flagged.length ? `<p class="error">지시성 문장 ${r.flagged.length}건 감지 — 데이터로만 취급, 추출·판정에 반영하지 않음</p>` : ''}
+    <details class="tools"><summary>도구 호출 3건</summary><ol>
+      <li><code>extract_advisory_ko(${esc(ad.id)})</code> → 필드 ${r.fields.length}개</li>
+      <li><code>verify_citations(원문)</code> → 일치 ${r.verified}/${r.fields.length}</li>
+      <li><code>screen_external_text(${esc(ad.source)})</code> → 지시성 문장 ${r.flagged.length}건</li></ol></details>
+    <div class="toolbar"><button class="small" data-action="kr-apply" data-id="${ad.id}">승인 — 위협 정보에 추가</button>
+      <button class="small ghost" data-action="kr-clear">취소</button></div>`;
 }
 
 function assessmentTable(list) {
@@ -366,6 +469,40 @@ function discoveryCard() {
   </div>`;
 }
 
+// 외부 점검 결과 가져오기: 자산 관측값은 자동 탐색과 같은 방식으로 대조, 설정 취약 항목은 할 일 후보
+function scanCard() {
+  const p = scanPreview;
+  return `<div class="card">
+    <h3>외부 점검 결과 가져오기</h3>
+    <p class="muted">내서버돌보미·점검 스크립트·스캐너(OpenVAS·Nessus) 결과 CSV 붙여넣기 → 자산 정보 대조 + 설정 취약 항목은 할 일 후보 — 반영은 승인 후. 스캐너를 대신하지 않고 결과를 할 일·증적으로 변환</p>
+    <textarea id="scanText" rows="4" placeholder="첫 줄에 헤더가 있는 CSV">${esc(scanText)}</textarea>
+    <div class="toolbar" style="margin-top:8px">${Object.entries(SCAN_SAMPLES).map(([k, s]) => `<button class="small ghost" data-action="scan-sample" data-id="${k}">${esc(s.label)} 예시</button>`).join('')}
+      <button class="small" data-action="scan-parse">분석</button></div>
+    ${p ? `${p.findings.length ? discoveryTable(p.findings, false) : '<p class="empty">인식된 자산 없음</p>'}
+      ${p.configs.length ? `<div class="table-wrap"><table><tr><th>자산</th><th>설정 점검 항목</th><th>결과</th><th>반영</th></tr>
+        ${p.configs.map(c => `<tr><td>${esc(c.name)}</td><td>${esc(c.item)}</td><td>${badge(c.result, 'p-high')}</td><td class="muted">할 일 등록</td></tr>`).join('')}</table></div>` : ''}
+      <p class="muted">양호·조치 불필요 ${p.passed}건 제외</p>
+      <div class="toolbar"><button class="small" data-action="scan-apply">승인 — 자산 반영 ${p.findings.filter(f => f.kind !== '확인').length}건 · 할 일 ${p.configs.length}건</button>
+        <button class="small ghost" data-action="scan-clear">취소</button></div>` : ''}
+  </div>`;
+}
+
+function applyScan() {
+  const p = scanPreview;
+  const changed = p.findings.filter(f => f.kind !== '확인');
+  if (changed.length) {
+    const r = applyDiscovery(changed);
+    if (!r.ok) return r;
+  }
+  const n = p.configs.filter(c => addExtraTask({
+    kind: 'scan', key: `scan|${c.name}|${c.item.split(' ')[0]}`, assetName: c.name, cveId: c.item.split(' ')[0],
+    title: `${c.item} 조치`, reason: `${scanSource} 결과 ${c.result}`, refs: ['점검 결과'], link: '#assets',
+  })).length;
+  addHistory('점검 결과 반영', `${scanSource}: 자산 반영 ${changed.length}건, 설정 취약 할 일 ${n}건 등록`);
+  save();
+  return { ok: true };
+}
+
 // 보완·변경은 자산에 반영, 신규는 등록 — 재평가 1회 후 브리핑
 function applyDiscovery(findings) {
   const fresh = findings.filter(f => f.kind === '신규');
@@ -393,6 +530,7 @@ function viewAssets() {
     <p class="sub">${esc(state.name)} · 자산 ${state.assets.length} / ${lim ?? '무제한'} (${esc(state.plan)} 플랜) · 저장 시 전체 위협 재평가</p>
     ${formError ? `<p class="error">${esc(formError)} <a href="#plans">요금제 보기</a></p>` : ''}
     ${discoveryCard()}
+    ${scanCard()}
     <div class="card">
       <h3>일괄 등록 (자연어·CSV)</h3>
       <p class="muted">한 줄에 자산 하나씩 문장으로 쓰거나, 첫 줄에 헤더가 있는 CSV를 붙여넣기 — 분석 결과 확인 후 등록</p>
@@ -418,6 +556,9 @@ function viewAssets() {
         <label>운영 용도<input name="purpose" value="${esc(e.purpose)}"></label>
         ${selectField('patch', '패치 상태', ['미적용', '적용 완료', '확인 필요'], e.patch)}
         <label>담당자<input name="owner" value="${esc(e.owner)}"></label>
+        <label>책임 주체<input name="maintainer" value="${esc(e.maintainer)}" placeholder="자사 / 유지보수 업체: OO / 벤더: OO"></label>
+        <label>유지보수 계약 만료<input type="date" name="contractEnd" value="${esc(e.contractEnd)}"></label>
+        <label>단종(EoS) 일자<input type="date" name="eos" value="${esc(e.eos)}"></label>
         <div class="form-actions">
           <button type="submit">${editingAssetId ? '수정 저장' : '등록'}</button>
           <button type="button" class="ghost" data-action="asset-autofill">자동 채우기</button>
@@ -430,11 +571,13 @@ function viewAssets() {
     <div class="card">
       <h3>등록 자산 (${state.assets.length})</h3>
       ${state.assets.length ? `<div class="table-wrap"><table>
-        <tr><th>자산명</th><th>제품 / 버전</th><th>유형</th><th>중요도</th><th>외부 노출</th><th>패치</th><th>담당자</th><th>대응 필요</th><th></th></tr>
+        <tr><th>자산명</th><th>제품 / 버전</th><th>유형</th><th>중요도</th><th>외부 노출</th><th>패치</th><th>담당자</th><th>책임·계약</th><th>대응 필요</th><th></th></tr>
         ${state.assets.map(a => `<tr>
           <td>${esc(a.name)}${a.verified ? ` <span class="chip" title="${esc(a.verified.source)}">자동 확인 ${a.verified.at.slice(5)}</span>` : ''}<div class="muted">${esc(a.purpose)}</div></td>
           <td>${esc(a.product)} ${a.version ? esc(a.version) : '<span class="muted">버전 미등록</span>'}</td>
-          <td>${esc(a.type)}</td><td>${esc(a.criticality)}</td><td>${esc(a.exposure)}</td><td>${esc(a.patch)}</td><td>${esc(a.owner)}</td>
+          <td>${esc(a.type)}</td><td>${esc(a.criticality)}</td><td>${esc(a.exposure)}</td>
+          <td>${esc(a.patch)}${a.patchEvidence ? ` <span class="chip" title="${esc(a.patchEvidence.text)}">증빙 ${esc(a.patchEvidence.verdict)}</span>` : ''}</td><td>${esc(a.owner)}</td>
+          <td>${esc(a.maintainer || '자사')}${a.contractEnd ? `<div class="muted">계약 ~${a.contractEnd}</div>` : ''}${a.eos ? `<div class="muted">단종 ${a.eos}</div>` : ''}</td>
           <td class="num">${list.filter(x => x.asset.id === a.id && x.status === 'active').length}</td>
           <td style="white-space:nowrap"><button class="small ghost" data-action="edit-asset" data-id="${a.id}">수정</button>
             <button class="small danger" data-action="delete-asset" data-id="${a.id}">삭제</button></td>
@@ -577,6 +720,7 @@ function viewDetail(key) {
       </div>
     </div>
     <div class="grid two">${whatIfCard(a)}${overrideCard(a)}</div>
+    ${CONDITION_CHECKS[v.id] || a.status === 'active' ? `<div class="grid two">${conditionCard(a)}${vendorCard(a)}</div>` : ''}
     <div class="grid two">
       ${box('box-fact', '확인된 사실', a.facts.map(f => `<li>${esc(f.fact)}<span class="chip">${esc(f.ref)}</span></li>`))}
       ${box('box-cond', '기업별 적용 조건', a.conditions.map(c => `<li>${esc(c)}</li>`))}
@@ -600,8 +744,9 @@ function viewDetail(key) {
     <div class="card">
       <div class="toolbar"><h3 style="margin:0">조치 업무</h3>
         ${a.status === 'active' ? `<button class="small" data-action="create-tasks" data-id="${esc(key)}">조치 업무 생성</button>` : ''}
-        ${allDone && a.asset.patch !== '적용 완료' ? `<button class="small" data-action="mark-patched" data-id="${a.asset.id}">자산 패치 상태 '적용 완료'로 갱신</button>` : ''}
+        ${allDone && a.asset.patch !== '적용 완료' && evidenceDraft?.assetId !== a.asset.id ? `<button class="small" data-action="evidence-open" data-id="${a.asset.id}">자산 패치 상태 '적용 완료'로 갱신</button>` : ''}
       </div>
+      ${allDone && a.asset.patch !== '적용 완료' && evidenceDraft?.assetId === a.asset.id ? evidenceForm(a.asset) : ''}
       ${tasks.length ? taskTable(tasks, false) : '<p class="empty">생성된 업무 없음</p>'}
       <p class="muted">시스템 변경·패치는 자동 실행하지 않음 — 담당자 검토·승인 후 수행</p>
     </div>
@@ -609,6 +754,85 @@ function viewDetail(key) {
       <h3>판단 갱신 이력</h3>
       ${hist.length ? `<ul class="timeline">${hist.map(historyItem).join('')}</ul>` : '<p class="empty">변경 이력 없음 (최초 평가 이후 변경 없음)</p>'}
     </div>`;
+}
+
+// 영향 조건 확인: 읽기 전용 명령 출력 해석 → 미충족이면 승인 후 영향 없음(담당자 조정)으로 반영
+const VERDICT_CLS = { 충족: 'p-urgent', 미충족: 'p-done', '판단 불가': 'p-none' };
+
+function conditionCard(a) {
+  const spec = CONDITION_CHECKS[a.vuln.id];
+  if (!spec) return '';
+  const rec = state.conditionChecks[a.key];
+  const d = condDraft[a.key] || {};
+  const k = esc(a.key);
+  return `<div class="card">
+    <h3>영향 조건 확인</h3>
+    <p class="muted">버전 대조로 알 수 없는 권고문의 영향 조건을 읽기 전용 명령으로 확인 (목업: 출력 해석은 LLM 대체 규칙)</p>
+    <blockquote class="advisory">권고문 조건: ${esc(spec.condition)}</blockquote>
+    <p>${esc(spec.plain)}</p>
+    <p class="muted">확인 명령 — 읽기 전용, 시스템을 바꾸지 않음</p>
+    ${spec.commands.map(c => `<code class="cmd">${esc(c)}</code>`).join('')}
+    ${rec ? `<p>최근 확인 ${rec.at}: ${badge(`조건 ${rec.verdict}`, VERDICT_CLS[rec.verdict])} ${esc(rec.reason)}</p>` : ''}
+    <textarea data-cond-output="${k}" rows="3" placeholder="명령 출력 붙여넣기">${esc(d.output || '')}</textarea>
+    <div class="toolbar" style="margin-top:8px"><button class="small ghost" data-action="cond-sample" data-id="${k}" data-sample="met">예시: 조건 충족</button>
+      <button class="small ghost" data-action="cond-sample" data-id="${k}" data-sample="notMet">예시: 조건 미충족</button>
+      <button class="small" data-action="cond-run" data-id="${k}">결과 해석</button></div>
+    ${d.result ? `<p>${badge(`조건 ${d.result.verdict}`, VERDICT_CLS[d.result.verdict])} ${esc(d.result.reason)}</p>
+      ${d.result.verdict === '미충족' ? `<button class="small" data-action="cond-apply" data-id="${k}">승인 — 영향 없음으로 반영</button>`
+        : d.result.verdict === '충족' ? `<button class="small ghost" data-action="cond-apply" data-id="${k}">확인 기록 저장 (현재 판정 유지)</button>`
+          : '<p class="muted">판정 유지 — 담당자 직접 확인 필요</p>'}` : ''}
+  </div>`;
+}
+
+function applyCondition(key) {
+  const a = allAssessments().find(x => x.key === key);
+  const d = condDraft[key];
+  if (!a || !d?.result) return;
+  const { verdict, reason } = d.result;
+  state.conditionChecks[key] = { verdict, reason, at: nowText(), target: `${a.asset.name} × ${a.vuln.id}`, output: d.output.slice(0, 300) };
+  addHistory('조건 확인', `${a.asset.name} × ${a.vuln.id}: 영향 조건 ${verdict} — ${reason}`, key);
+  if (verdict === '미충족') {
+    state.overrides[key] = { priority: '오탐', reason: `영향 조건 미충족 — ${reason}`, at: nowText(), basisLabel: a.label };
+    addHistory('판단 수정', `${a.asset.name} × ${a.vuln.id}: ${a.label} → 영향 없음 (영향 조건 미충족, 확인 출력 보관)`, key);
+  }
+  delete condDraft[key];
+  reassess(`영향 조건 확인: ${reason}`);
+}
+
+// 외주 업체 요청: 메일 초안 → 승인 후 발송(목업) → 회신 해석 → 승인 후 업무 일정 반영
+function vendorCard(a) {
+  if (a.status !== 'active') return '';
+  const sent = state.vendorRequests[a.key];
+  const d = vendorDraft[a.key] || {};
+  const k = esc(a.key);
+  const draft = vendorRequestDraft(a, addDays(today(), DUE_DAYS[a.priority] || 7));
+  return `<div class="card">
+    <h3>외주 업체 요청</h3>
+    <p class="muted">책임 주체: ${esc(a.asset.maintainer || '자사 (미등록)')} — 요청 메일 초안 작성, 발송·일정 반영은 승인 후 (목업: 실제 발송 없음)</p>
+    ${sent ? `<p>✔ ${sent.at} 발송(목업) — 수신 ${esc(sent.to)}${sent.schedule ? ` · 작업 예정 ${esc(sent.schedule)}` : ''}</p>`
+      : `<blockquote class="advisory"><b>${esc(draft.subject)}</b><br>${draft.body.map(esc).join('<br>')}</blockquote>
+        <button class="small" data-action="vendor-send" data-id="${k}">승인 — 발송 (목업)</button>`}
+    ${sent && !sent.schedule ? `<textarea data-vendor-reply="${k}" rows="2" placeholder="업체 회신 붙여넣기">${esc(d.reply || '')}</textarea>
+      <div class="toolbar" style="margin-top:8px"><button class="small ghost" data-action="vendor-sample" data-id="${k}">예시 회신</button>
+        <button class="small" data-action="vendor-parse" data-id="${k}">회신 해석</button></div>
+      ${d.parsed ? `<div class="table-wrap"><table><tr><th>작업 일자</th><th>시각</th><th>작업자</th><th>근거 문장</th></tr>
+        <tr><td>${esc(d.parsed.date || '찾지 못함')}</td><td>${esc(d.parsed.time || '-')}</td><td>${esc(d.parsed.worker || '-')}</td><td class="muted">${esc(d.parsed.quote || '-')}</td></tr></table></div>
+        ${d.parsed.date ? `<button class="small" data-action="vendor-apply" data-id="${k}">승인 — 업무 일정 반영</button>` : '<p class="muted">일정을 찾지 못함 — 업무 화면에서 직접 입력</p>'}` : ''}` : ''}
+  </div>`;
+}
+
+function applyVendorReply(key) {
+  const a = allAssessments().find(x => x.key === key);
+  const p = vendorDraft[key]?.parsed;
+  if (!a || !p?.date) return;
+  if (!state.tasks.some(t => t.key === key)) createTasks(key);
+  const schedule = `${p.date}${p.time ? ` ${p.time}` : ''}`;
+  const owner = `외주: ${p.worker || vendorName(a.asset)}`;
+  state.tasks.filter(t => t.key === key && t.title.startsWith('패치 가능 여부')).forEach(t => { t.due = schedule; t.owner = owner; t.status = t.status === '완료' ? t.status : '진행'; });
+  state.vendorRequests[key].schedule = schedule;
+  addHistory('외주 요청', `${a.asset.name} × ${a.vuln.id}: 업체 회신 반영 — 작업 예정 ${schedule}, ${owner}`, key);
+  delete vendorDraft[key];
+  save();
 }
 
 function saveOverride(key) {
@@ -631,13 +855,21 @@ function createTasks(key) {
   const created = taskTemplates(a).filter(t => !existing.has(t.title)).map(t => ({
     id: `T${++state.seq}`, key, assetName: a.asset.name, cveId: a.vuln.id,
     priority: a.priority, priorityCls: a.priorityCls, ...t,
-    status: '대기', owner: a.asset.owner || '', checkedAt: '',
+    status: '대기', owner: a.asset.owner || '', checkedAt: '', createdAt: today(),
   }));
   state.tasks.push(...created);
   addHistory('조치 업무', `${a.asset.name} × ${a.vuln.id}: 조치 업무 ${created.length}건 생성`, key);
   save();
   route();
   return created.length;
+}
+
+// 취약점 외 할 일 (kind: gap·scan·contract) — key·제목 중복 시 생략
+function addExtraTask(t) {
+  if (state.tasks.some(x => x.key === t.key && x.title === t.title)) return false;
+  state.tasks.push({ id: `T${++state.seq}`, priority: '보통', priorityCls: 'p-medium', refs: [], status: '대기', owner: '', checkedAt: '', createdAt: today(), ...t });
+  addHistory('조치 업무', `${t.assetName}: '${t.title}' 할 일 등록`);
+  return true;
 }
 
 // ---------- 화면: 대화형 분석 ----------
@@ -729,12 +961,12 @@ function archiveCard() {
 
 function viewReport(param) {
   if (param && param.startsWith('log-')) return viewReportLog(param.slice(4));
-  const type = REPORT_TYPES[param] ? param : 'exec';
+  const type = REPORT_TABS.includes(param) ? param : 'exec';
   return `
     <h2>자동 리포트</h2>
     <p class="sub">현재 평가·조치 데이터로 즉시 생성 · 정기 예약·자동 감지 리포트는 보관함에 기록</p>
     <div class="toolbar no-print">
-      ${Object.entries(REPORT_TYPES).map(([k, l]) => `<a class="tab ${k === type ? 'active' : ''}" href="#report/${k}">${l}</a>`).join('')}
+      ${REPORT_TABS.map(k => `<a class="tab ${k === type ? 'active' : ''}" href="#report/${k}">${REPORT_TYPES[k]}</a>`).join('')}
       <button class="small" data-action="report-print">인쇄·PDF 저장</button>
       <button class="small ghost" data-action="report-md" data-id="${type}">Markdown 다운로드</button>
       <button class="small ghost" data-action="report-save" data-id="${type}">보관함에 저장</button>
@@ -781,8 +1013,8 @@ function taskTable(tasks, showTarget) {
     <tr><th>우선순위</th><th>업무</th>${showTarget ? '<th>대상</th>' : ''}<th>권장 이유</th><th>근거</th><th>담당자</th><th>상태</th><th>확인 일자</th></tr>
     ${tasks.map(t => `<tr>
       <td>${badge(t.priority, t.priorityCls)}</td>
-      <td>${esc(t.title)}</td>
-      ${showTarget ? `<td><a href="${detailLink(t.key)}">${esc(t.assetName)}<br><span class="muted">${t.cveId}</span></a></td>` : ''}
+      <td>${esc(t.title)}${t.due ? `<div class="muted">작업 예정 ${esc(t.due)}</div>` : ''}</td>
+      ${showTarget ? `<td><a href="${t.kind ? t.link : detailLink(t.key)}">${esc(t.assetName)}<br><span class="muted">${esc(t.cveId)}</span></a></td>` : ''}
       <td class="muted">${esc(t.reason)}</td>
       <td>${t.refs.map(r => `<span class="chip">${esc(r)}</span>`).join('')}</td>
       <td><input data-task-id="${t.id}" data-task-field="owner" value="${esc(t.owner)}" size="8"></td>
@@ -879,7 +1111,128 @@ function addTenant(form) {
   route();
 }
 
-// ---------- 화면: 요금제 ----------
+// ---------- 화면: 점검 대응 (원청·인증 점검 양식 자동 작성) ----------
+function viewAudit() {
+  const form = AUDIT_FORMS.find(f => f.id === auditFormId);
+  const rows = form ? fillAuditForm(form) : null;
+  const gaps = rows ? rows.filter(r => r.status === '갭') : [];
+  const logs = state.reportLog.filter(l => l.type === 'audit');
+  return `
+    <h2>원청·인증 점검 대응</h2>
+    <p class="sub">${esc(state.name)} · 받은 점검 양식을 항목별로 분해해 시스템 기록과 대조 — 답변 초안·근거·갭 표시, 제출본 저장은 승인 후 (목업: 양식 분해는 LLM 대체 데이터)</p>
+    <div class="card">
+      <h3>받은 양식</h3>
+      ${AUDIT_FORMS.map(f => `<div class="toolbar"><b>${esc(f.name)}</b> <span class="muted">${esc(f.from)}</span>
+        <button class="small ${f.id === auditFormId ? '' : 'ghost'}" data-action="audit-run" data-id="${f.id}">${f.id === auditFormId ? '다시 작성' : '에이전트 작성'}</button></div>`).join('')}
+    </div>
+    ${form ? `<div class="card">
+      <h3>${esc(form.name)}</h3>
+      <details><summary>양식 원문</summary><blockquote class="advisory">${esc(form.raw).replace(/\n/g, '<br>')}</blockquote></details>
+      <p>${['충족', '부분', '갭', '작성 필요'].map(s => `${badge(s, AUDIT_STATUS_CLS[s])} ${rows.filter(r => r.status === s).length}`).join(' · ')}
+        <span class="muted">충족은 근거 기록이 연결된 항목만</span></p>
+      <div class="table-wrap"><table><tr><th>항목</th><th>내용</th><th>상태</th><th>답변 초안</th><th>근거</th></tr>
+        ${rows.map(r => `<tr><td>${esc(r.no)}</td><td>${esc(r.text)}</td><td>${badge(r.status, AUDIT_STATUS_CLS[r.status])}</td><td>${esc(r.answer)}</td>
+          <td class="muted">${r.evidence.length ? r.evidence.map(esc).join('<br>') : '-'}</td></tr>`).join('')}
+      </table></div>
+      <details class="tools"><summary>도구 호출 ${rows.length + 1}건</summary><ol>
+        <li><code>parse_checklist_form(${esc(form.short)})</code> → 항목 ${rows.length}건</li>
+        ${rows.map(r => `<li><code>match_evidence(${esc(r.no)}, rule=${esc(r.rule)})</code> → ${esc(r.status)}</li>`).join('')}</ol></details>
+      <div class="toolbar">
+        ${gaps.length ? `<button class="small ghost" data-action="audit-gaps" data-id="${form.id}">갭 ${gaps.length}건 할 일로 등록</button>` : ''}
+        <button class="small" data-action="audit-save" data-id="${form.id}">승인 — 제출본 저장 (수신 ${esc(form.from)})</button>
+        <span class="muted">실제 제출·발송 없음</span></div>
+    </div>` : ''}
+    <div class="card"><h3>제출본 보관 (${logs.length})</h3>
+      ${logs.length ? `<ul class="plain">${logs.map(l => `<li><a href="#report/log-${l.id}">${esc(l.title)}</a> <span class="muted">${l.generatedAt} · ${esc(l.report.summary)}</span></li>`).join('')}</ul>` : '<p class="empty">저장된 제출본 없음</p>'}</div>`;
+}
+
+// ---------- 화면: 사고 대응 ----------
+function viewIncident() {
+  const inc = state.incident;
+  if (!inc) {
+    return `
+      <h2>사고 대응</h2>
+      <p class="sub">침해가 의심될 때 비전문가가 따라 하는 첫 대응 체크리스트와 신고 기한 관리 (목업: 실제 신고 없음)</p>
+      <div class="card">
+        <p class="warn">${esc(INCIDENT_FIRST)}</p>
+        <form id="incidentForm" class="asset-form">
+          <label>의심 유형<select name="type">${INCIDENT_TYPES.map(t => `<option value="${t.id}">${esc(t.name)}</option>`).join('')}</select></label>
+          ${selectField('mode', '구분', ['모의 훈련', '실제'], '모의 훈련')}
+          <label>인지 시각<input type="datetime-local" name="startedAt" value="${nowLocal()}"></label>
+          <div class="form-actions"><button type="submit">대응 시작</button></div>
+        </form>
+      </div>
+      <div class="card"><h3>대응·훈련 기록 (${state.incidents.length})</h3>
+        ${state.incidents.length ? `<div class="table-wrap"><table><tr><th>구분</th><th>유형</th><th>인지</th><th>종료</th><th>수행 단계</th></tr>
+          ${state.incidents.map(i => `<tr><td>${esc(i.mode)}</td><td>${esc(i.typeName)}</td><td>${esc(i.startedAt.replace('T', ' '))}</td><td>${esc(i.endedAt)}</td><td class="num">${Object.values(i.steps).filter(Boolean).length}</td></tr>`).join('')}
+        </table></div>` : '<p class="empty">기록 없음 — 모의 훈련 기록은 점검 양식의 사고 대응 항목 근거로 사용</p>'}</div>`;
+  }
+  const type = INCIDENT_TYPES.find(t => t.id === inc.type);
+  const deadlines = incidentDeadlines(inc);
+  return `
+    <h2>사고 대응 — ${esc(type.name)}</h2>
+    <p class="sub">${badge(inc.mode, inc.mode === '실제' ? 'p-urgent' : 'p-medium')} 인지 ${esc(inc.startedAt.replace('T', ' '))} · 대응 시작 ${esc(inc.openedAt)}</p>
+    <div class="card"><p class="warn">${esc(INCIDENT_FIRST)}</p></div>
+    <div class="grid two">
+      <div class="card"><h3>첫 대응 체크리스트</h3>
+        <ul class="checklist">${type.steps.map((s, i) => `<li><label><input type="checkbox" data-inc-step="${i}" ${inc.steps[i] ? 'checked' : ''}> ${esc(s)}</label></li>`).join('')}</ul></div>
+      <div class="card"><h3>신고·통지 기한</h3>
+        <div class="table-wrap"><table><tr><th>완료</th><th>항목</th><th>기한</th><th>남은 시간</th></tr>
+          ${deadlines.map(d => `<tr><td><input type="checkbox" data-inc-deadline="${d.id}" ${d.done ? 'checked' : ''} aria-label="${esc(d.name)} 완료"></td>
+            <td>${esc(d.name)}<div class="muted">${esc(d.basis)} · 인지 후 ${d.hours}시간</div></td><td>${d.due}</td>
+            <td>${d.done ? badge('완료', 'p-done') : badge(leftText(d.left), d.left < 0 ? 'p-urgent' : d.left < 360 ? 'p-high' : 'p-low')}</td></tr>`).join('')}
+        </table></div>
+        <p class="muted">남은 시간은 화면을 열 때 기준으로 계산</p></div>
+    </div>
+    <div class="card"><h3>신고서 초안 (자동 정리)</h3>${simpleTable(incidentDraft(inc))}
+      <p class="muted">신고 서식은 기관 안내에 따름 — 초안은 내용 정리용</p></div>
+    <div class="toolbar"><button data-action="incident-end">대응 종료·기록 보관</button></div>`;
+}
+
+function startIncident(form) {
+  const d = Object.fromEntries(form.entries());
+  const type = INCIDENT_TYPES.find(t => t.id === d.type);
+  state.incident = { type: d.type, mode: d.mode, startedAt: d.startedAt || nowLocal(), openedAt: nowText(), steps: {}, done: {} };
+  addHistory('사고 대응', `${d.mode} 시작: ${type.name} (인지 ${state.incident.startedAt.replace('T', ' ')})`);
+  if (d.mode === '실제') notify('긴급', `사고 대응 시작: ${type.name}`, '신고·통지 기한 확인 필요', '#incident');
+  save();
+  route();
+}
+
+// ---------- 화면: 요금제·지원사업 ----------
+function profileCard() {
+  const p = state.profile;
+  return `<div class="card">
+    <h3>회사 조건</h3>
+    <p class="muted">보안 의무 일정·정부 지원사업 매칭 기준</p>
+    <form id="profileForm" class="asset-form">
+      <label>임직원 수<input type="number" name="employees" min="1" value="${p.employees}"></label>
+      ${selectField('region', '지역', ['서울', '경기', '인천', '부산', '대구', '광주', '대전', '기타', '미지정'], p.region)}
+      ${Object.entries(PROFILE_FLAGS).map(([k, l]) => `<label class="check"><input type="checkbox" name="${k}" ${p[k] ? 'checked' : ''}> ${l}</label>`).join('')}
+      <div class="form-actions"><button type="submit">저장</button></div>
+    </form>
+  </div>`;
+}
+
+function supportCard() {
+  const list = matchPrograms();
+  return `<div class="card">
+    <h3>정부 지원사업</h3>
+    <p class="muted">회사 조건으로 대상 여부 판단 — 지원 조건·비율·일정은 공고별 확인 필요 (목업)</p>
+    <ul class="plain">${list.map(p => `<li>${badge(p.eligible ? '대상' : '조건 미충족', p.eligible ? 'p-done' : 'p-none')} <b>${esc(p.name)}</b> <span class="muted">${esc(p.org)} · ${esc(p.benefit)}</span>
+      <div class="muted">${[...p.ok.map(x => `✔ ${x}`), ...p.fail.map(x => `✖ ${x}`)].map(esc).join(' · ')}</div>
+      ${p.eligible ? `<button class="small ghost" data-action="support-doc" data-id="${p.id}">신청용 보안 현황 자료 생성</button>` : ''}</li>`).join('')}</ul>
+  </div>`;
+}
+
+function saveProfile(form) {
+  const d = Object.fromEntries(form.entries());
+  state.profile = { employees: Math.max(1, Number(d.employees) || 1), region: d.region, ...Object.fromEntries(Object.keys(PROFILE_FLAGS).map(k => [k, form.has(k)])) };
+  addHistory('회사 조건', `임직원 ${state.profile.employees}명 · ${state.profile.region} · ${Object.entries(PROFILE_FLAGS).filter(([k]) => state.profile[k]).map(([, l]) => l).join(', ') || '해당 조건 없음'}`);
+  save();
+  route();
+}
+
 function viewPlans() {
   if (state.onboarding && !state.onboarding.viewedPlans) { state.onboarding.viewedPlans = true; save(); }
   const lim = planOf().assetLimit;
@@ -898,7 +1251,9 @@ function viewPlans() {
         : p.partnerOnly ? '<a class="small-link" href="#tenants">파트너 계정 전용 — 고객사 현황 보기</a>'
         : `<button class="small" data-action="set-plan" data-id="${p.id}">이 플랜으로 변경 (목업)</button>`}
     </div>`).join('')}</div>
-    <p class="muted">결제 기능 없음. 플랜 변경 시 자산 한도와 예약 리포트 사용 가능 여부만 바뀜</p>`;
+    <p class="muted">결제 기능 없음. 플랜 변경 시 자산 한도와 예약 리포트 사용 가능 여부만 바뀜</p>
+    <h2>회사 조건·정부 지원사업</h2>
+    <div class="grid two">${profileCard()}${supportCard()}</div>`;
 }
 
 // ---------- 시뮬레이션 ----------
@@ -908,15 +1263,34 @@ function runSimulation() {
   const v = store.vulns.find(x => x.id === u.cveId);
   Object.assign(v, u.changes, { updatedAt: today() });
   store.simStep++;
-  store.feed.unshift({ time: nowText(), text: `${v.id} (${v.product}) — ${u.text}` });
+  broadcastUpdate(`${v.id} (${v.product}) — ${u.text}`, `위협 정보 갱신: ${u.text}`, `위협 정보 갱신: ${v.id} ${u.text}`);
+  route();
+}
+
+// 공용 위협 정보 변경 후 전체 고객사 재평가, 현재 고객사에 브리핑
+function broadcastUpdate(feedText, reason, briefReason) {
+  store.feed.unshift({ time: nowText(), text: feedText });
   let summary = null;
   Object.values(store.tenants).forEach(t => withTenant(t, () => {
-    addHistory('위협 정보 갱신', `${v.id} (${v.product}): ${u.text}`);
-    const r = reassess(`위협 정보 갱신: ${u.text}`);
+    addHistory('위협 정보 갱신', feedText);
+    const r = reassess(reason);
     if (t.id === store.current) summary = r;
   }));
-  if (summary) postBriefing(`위협 정보 갱신: ${v.id} ${u.text}`, summary);
-  route();
+  if (summary) postBriefing(briefReason, summary);
+}
+
+// 국내 공지 추출 결과를 미검증 위협 정보로 추가 (위험도 등급은 규칙표 환산, EPSS 없음)
+function ingestKr(id) {
+  const ad = KR_ADVISORIES.find(x => x.id === id);
+  if (!ad || store.krIngested.includes(id)) return;
+  const e = ad.extract;
+  store.vulns.push({
+    id: ad.id, product: ad.product, title: e.title, affected: { from: e.from, fixed: e.fixed }, cvss: KR_SEVERITY[e.severity], epss: null, kev: false,
+    published: ad.published, updatedAt: today(), summary: e.title, mitigation: e.mitigation, vendorUrl: 'https://www.boho.or.kr/',
+    kr: { source: ad.source, ref: ad.ref, severity: e.severity, raw: ad.raw },
+  });
+  store.krIngested.push(id);
+  broadcastUpdate(`${ad.id} (${ad.product}) — 국내 공지 구조화로 위협 정보 추가 (미검증)`, `국내 공지 추가: ${ad.product}`, `국내 공지 추가: ${ad.id} ${ad.product}`);
 }
 
 // ---------- 라우팅·이벤트 ----------
@@ -925,6 +1299,7 @@ function route() {
   const views = {
     todo: viewTodo, dashboard: viewDashboard, chat: viewChat, assets: viewAssets, analysis: p => (p ? viewDetail(p) : viewAnalysis()),
     tasks: viewTasks, report: viewReport, history: viewHistory, tenants: viewTenants, plans: viewPlans,
+    audit: viewAudit, incident: viewIncident,
   };
   $view.innerHTML = (views[view] || viewTodo)(param && decodeURIComponent(param));
   document.querySelectorAll('[data-nav]').forEach(a => a.classList.toggle('active', a.dataset.nav === (views[view] ? view : 'todo')));
@@ -1074,11 +1449,122 @@ document.addEventListener('click', e => {
       save(); route();
       break;
     }
+    case 'evidence-open': evidenceDraft = { assetId: id, type: '버전 확인 출력', text: '', error: '' }; route(); break;
+    case 'evidence-cancel': evidenceDraft = null; route(); break;
+    case 'evidence-sample': {
+      const a = state.assets.find(x => x.id === id);
+      evidenceDraft = { ...evidenceDraft, type: '버전 확인 출력', error: '',
+        text: `$ ${VERSION_CMD[a.product] || '버전 확인 명령'}\n${a.product} ${fixedVersionOf(a.product, state.vulns) || ''}` };
+      route();
+      break;
+    }
     case 'mark-patched': {
       const a = state.assets.find(x => x.id === id);
+      const type = document.getElementById('evType').value;
+      const text = document.getElementById('evText').value.trim();
+      const v = evidenceVerdict(text, a.product, state.vulns);
+      if (!v.ok) { evidenceDraft = { assetId: id, type, text, error: v.detail }; route(); break; }
       a.patch = '적용 완료';
-      addHistory('자산 변경', `${a.name}: 조치 결과 반영 — 패치 상태 '적용 완료'`);
-      reassess('조치 결과 반영: 패치 적용 완료'); route();
+      a.patchEvidence = { at: today(), type, text: text.slice(0, 300), verdict: v.label, detail: v.detail };
+      addHistory('자산 변경', `${a.name}: 조치 결과 반영 — 패치 상태 '적용 완료' (증빙: ${type}, ${v.label} — ${v.detail})`);
+      evidenceDraft = null;
+      reassess('조치 결과 반영: 패치 적용 완료(증빙 확인)'); route();
+      break;
+    }
+    case 'cond-sample': {
+      const spec = CONDITION_CHECKS[id.split('|')[1]];
+      condDraft[id] = { output: spec.samples[el.dataset.sample] };
+      route();
+      break;
+    }
+    case 'cond-run': {
+      const output = [...document.querySelectorAll('[data-cond-output]')].find(x => x.dataset.condOutput === id).value;
+      condDraft[id] = { output, result: interpretCheck(CONDITION_CHECKS[id.split('|')[1]], output) };
+      route();
+      break;
+    }
+    case 'cond-apply': applyCondition(id); route(); break;
+    case 'vendor-send': {
+      const a = allAssessments().find(x => x.key === id);
+      const draft = vendorRequestDraft(a, addDays(today(), DUE_DAYS[a.priority] || 7));
+      state.vendorRequests[id] = { at: nowText(), to: draft.to, subject: draft.subject };
+      addHistory('외주 요청', `${a.asset.name} × ${a.vuln.id}: ${draft.to}에 패치 작업 요청 발송(목업)`, id);
+      save(); route();
+      break;
+    }
+    case 'vendor-sample': vendorDraft[id] = { reply: VENDOR_REPLY_SAMPLE }; route(); break;
+    case 'vendor-parse': {
+      const reply = [...document.querySelectorAll('[data-vendor-reply]')].find(x => x.dataset.vendorReply === id).value;
+      vendorDraft[id] = { reply, parsed: parseVendorReply(reply, today()) };
+      route();
+      break;
+    }
+    case 'vendor-apply': applyVendorReply(id); route(); break;
+    case 'kr-extract': krPreview = id; route(); break;
+    case 'kr-clear': krPreview = null; route(); break;
+    case 'kr-apply': ingestKr(id); krPreview = null; route(); break;
+    case 'scan-sample': scanText = SCAN_SAMPLES[id].text; scanSource = SCAN_SAMPLES[id].label; scanPreview = null; route(); break;
+    case 'scan-parse': {
+      scanText = document.getElementById('scanText').value;
+      if (!scanSource) scanSource = '외부 점검 결과';
+      const r = parseScanResults(scanText);
+      scanPreview = { findings: r.observations.map(o => classifyObservation(o, state.assets, scanSource)), configs: r.configs, passed: r.passed };
+      route();
+      break;
+    }
+    case 'scan-clear': scanPreview = null; route(); break;
+    case 'scan-apply': {
+      const r = applyScan();
+      if (r.ok) { scanPreview = null; scanText = ''; formError = ''; } else formError = r.msg;
+      route();
+      break;
+    }
+    case 'audit-run': auditFormId = id; route(); break;
+    case 'audit-gaps': {
+      const form = AUDIT_FORMS.find(f => f.id === id);
+      fillAuditForm(form).filter(r => r.status === '갭').forEach(r => addExtraTask({
+        kind: 'gap', key: `gap|${form.id}|${r.no}`, assetName: form.short, cveId: `항목 ${r.no}`,
+        title: `점검 항목 ${r.no} 보완: ${r.text}`, reason: r.answer, refs: ['점검 양식'], link: '#audit',
+      }));
+      save(); route();
+      break;
+    }
+    case 'audit-save': {
+      const form = AUDIT_FORMS.find(f => f.id === id);
+      const log = archiveReport('audit', '승인 — 제출본 저장', id, form.from);
+      addHistory('점검 대응', `${log.title} 저장 (${log.report.summary})`);
+      save(); route();
+      break;
+    }
+    case 'incident-end': {
+      const inc = state.incident;
+      const type = INCIDENT_TYPES.find(t => t.id === inc.type);
+      state.incidents.unshift({ ...inc, typeName: type.name, endedAt: nowText() });
+      state.incident = null;
+      addHistory('사고 대응', `${inc.mode} 종료·기록 보관: ${type.name} (수행 단계 ${Object.values(inc.steps).filter(Boolean).length}/${type.steps.length})`);
+      save(); route();
+      break;
+    }
+    case 'support-doc': {
+      const log = archiveReport('support', '지원사업 신청 자료 생성', id);
+      addHistory('리포트', `${log.title} 생성`);
+      save();
+      location.hash = `#report/log-${log.id}`;
+      break;
+    }
+    case 'contract-task': {
+      const a = state.assets.find(x => x.id === id);
+      const c = contractAlerts().find(x => x.asset.id === id && x.kind === el.dataset.kind);
+      if (c) addExtraTask({ kind: 'contract', key: `contract|${id}|${c.kind}`, assetName: a.name, cveId: c.kind, title: `${c.task} (${a.name})`, reason: `${c.kind} ${c.date}`, refs: ['자산 대장'], link: '#assets' });
+      save(); route();
+      break;
+    }
+    case 'decide': {
+      const d = decisionRequests(allAssessments()).find(x => x.id === id);
+      if (!d) break;
+      state.decisions[id] = { status: el.dataset.reply, at: nowText() };
+      addHistory('대표 결정', `${d.title}: ${el.dataset.reply} (대표 회신 목업)`);
+      save(); route();
       break;
     }
     case 'set-plan': {
@@ -1103,7 +1589,32 @@ document.addEventListener('change', e => {
   }
   else if (el.dataset.taskField) updateTask(el.dataset.taskId, el.dataset.taskField, el.value);
   else if (el.dataset.todoTask) updateTask(el.dataset.todoTask, 'status', el.checked ? '완료' : '대기');
+  else if (el.dataset.dutyDone) completeDuty(el.dataset.dutyDone);
+  else if (el.dataset.incStep || el.dataset.incDeadline) updateIncident(el);
 });
+
+function completeDuty(id) {
+  const d = DUTIES.find(x => x.id === id);
+  state.dutyLog.unshift({ id, at: today() });
+  state.dutyDue[id] = addDays(today(), d.cycleDays);
+  addHistory('의무 이행', `${d.title} 완료 — 다음 기한 ${state.dutyDue[id]}`);
+  save();
+  route();
+}
+
+function updateIncident(el) {
+  const inc = state.incident;
+  const type = INCIDENT_TYPES.find(t => t.id === inc.type);
+  if (el.dataset.incStep) {
+    inc.steps[el.dataset.incStep] = el.checked;
+    addHistory('사고 대응', `${type.steps[el.dataset.incStep]} — ${el.checked ? '완료' : '해제'}`);
+  } else {
+    inc.done[el.dataset.incDeadline] = el.checked;
+    addHistory('사고 대응', `${REPORT_DEADLINES.find(d => d.id === el.dataset.incDeadline).name} — ${el.checked ? '완료 표시' : '해제'}`);
+  }
+  save();
+  route();
+}
 
 function updateWhatIf() {
   const box = document.getElementById('whatifResult');
@@ -1116,6 +1627,8 @@ document.addEventListener('submit', e => {
   if (e.target.id === 'assetForm') saveAsset(new FormData(e.target));
   else if (e.target.id === 'chatForm') sendChat(e.target.q.value);
   else if (e.target.id === 'tenantForm') addTenant(new FormData(e.target));
+  else if (e.target.id === 'incidentForm') startIncident(new FormData(e.target));
+  else if (e.target.id === 'profileForm') saveProfile(new FormData(e.target));
 });
 
 window.addEventListener('hashchange', route);
