@@ -168,9 +168,9 @@ const SEED_TENANTS = [
 
 // 가격은 인터뷰 지불 의향 조사로 결정 예정 — 플랜 구조만 시연
 const PLANS = [
-  { id: '무료', target: '체험·소규모', price: '무료', assetLimit: 10, schedule: false, features: ['자산 10개', 'KEV 매칭 알림', '대화형 분석', '수동 리포트 생성'] },
-  { id: '구독', target: '단일 기업', price: '가격 가설 검증 중', assetLimit: 100, schedule: true, features: ['자산 100개', '정기 리포트 예약·발송', '긴급 알림 리포트 자동 생성', '판단 수정 이력'] },
-  { id: '파트너', target: 'MSP·IT 유지보수 업체', price: '가격 가설 검증 중', assetLimit: null, schedule: true, partnerOnly: true, features: ['고객사 다중 관리', '고객사별 위험 현황 비교', '고객사별 리포트', '자산 무제한'] },
+  { id: '무료', target: '체험·소규모', price: '무료', assetLimit: 10, schedule: false, features: ['자산 10개', 'KEV 매칭 알림', '오류 감시 1개 사이트 (가설)', '대화형 분석', '수동 리포트 생성'] },
+  { id: '구독', target: '단일 사업자', price: '가격 가설 검증 중', assetLimit: 100, schedule: true, features: ['자산 100개', '보안·오류 두 축 운영', '설정 보완 수정안', '정기 리포트 예약·발송', '긴급 알림·오류 보고서 자동 생성'] },
+  { id: '파트너', target: 'MSP·유지보수 업체·에이전시', price: '가격 가설 검증 중', assetLimit: null, schedule: true, partnerOnly: true, features: ['고객사 다중 관리', '고객사별 보안 위험·오류 비교', '고객사별 리포트', '자산 무제한'] },
 ];
 
 const DEFAULT_SCHEDULES = {
@@ -221,7 +221,7 @@ const DISCOVERY_RESULTS = {
   ],
 };
 
-// ---------- 기획안 5-5·5-6 목업 데이터 (모두 가상 — 제품·업체명, 조항·기한·지원 비율은 확인 필요) ----------
+// ---------- 기획안_v3 5-5·5-6 목업 데이터 (모두 가상 — 제품·업체명, 조항·기한·지원 비율은 확인 필요) ----------
 
 // 신규 고객사 기본 회사 조건 (의무 캘린더·지원사업 매칭에 사용)
 const DEFAULT_PROFILE = { employees: 50, region: '미지정', personalInfo: true, primeContractor: false, isms: false, disclosure: false };
@@ -292,7 +292,7 @@ const AUDIT_FORMS = [
       { no: '3', text: '인터넷 노출 시스템 파악', rule: 'exposure' },
       { no: '4', text: '접속기록 월 1회 이상 점검', rule: 'duty:access-log' },
       { no: '5', text: '경영진 정기 보고', rule: 'report' },
-      { no: '6', text: '침해사고 대응 절차·기록', rule: 'incident' },
+      { no: '6', text: '침해사고 대응 절차·기록', rule: 'manual' },
       { no: '7', text: '백업·복구 테스트', rule: 'duty:backup-test' },
     ],
   },
@@ -303,7 +303,7 @@ const AUDIT_FORMS = [
       { no: 'SC-01', text: '정보자산 식별·관리', rule: 'inventory' },
       { no: 'SC-07', text: '공개 취약점 정기 확인·조치', rule: 'patch' },
       { no: 'SC-12', text: '유지보수 계약 보안 요구사항', rule: 'manual' },
-      { no: 'SC-15', text: '보안 사고 대응 체계', rule: 'incident' },
+      { no: 'SC-15', text: '보안 사고 대응 체계', rule: 'manual' },
       { no: 'SC-21', text: '경영진 보고', rule: 'report' },
     ],
   },
@@ -313,28 +313,10 @@ const AUDIT_FORMS = [
 const DUTIES = [
   { id: 'access-log', title: '개인정보처리시스템 접속기록 점검', cycle: '월 1회', cycleDays: 30, firstDueIn: 5, basis: '개인정보의 안전성 확보조치 기준 [조항·주기 확인 필요]', when: 'personalInfo' },
   { id: 'pi-training', title: '개인정보취급자 보안 교육', cycle: '연 1회', cycleDays: 365, firstDueIn: 40, basis: '개인정보 보호법 [조항·주기 확인 필요]', when: 'personalInfo' },
-  { id: 'prime-audit', title: '원청 협력사 보안 점검표 제출', cycle: '반기', cycleDays: 182, firstDueIn: 12, basis: '원청 계약별 요구 (계약서 확인)', when: 'primeContractor', link: '#audit' },
+  { id: 'prime-audit', title: '원청 협력사 보안 점검표 제출', cycle: '반기', cycleDays: 182, firstDueIn: 12, basis: '원청 계약별 요구 (계약서 확인)', when: 'primeContractor' },
   { id: 'isms-audit', title: 'ISMS 사후 심사 준비', cycle: '연 1회', cycleDays: 365, firstDueIn: 60, basis: '정보보호 관리체계 인증 [주기 확인 필요]', when: 'isms' },
   { id: 'disclosure', title: '정보보호 공시 제출', cycle: '연 1회', cycleDays: 365, firstDueIn: 90, basis: '정보보호산업법 [대상·기한 확인 필요]', when: 'disclosure' },
   { id: 'backup-test', title: '백업 복구 테스트', cycle: '분기', cycleDays: 91, firstDueIn: 20, basis: '내부 권고 (법정 의무 아님)', when: null },
-];
-
-// 침해 의심 첫 대응 (안내 목적 — 공식 기관 상담 우선)
-const INCIDENT_FIRST = 'KISA 118 상담센터 등 공식 기관에 먼저 연락해 안내를 받을 것. 이 가이드는 안내 목적이며 판단·책임을 대신하지 않음';
-const INCIDENT_TYPES = [
-  { id: 'ransom', name: '랜섬웨어 감염 의심', pi: false, assets: a => a.criticality === '상' && a.type !== '네트워크 장비',
-    steps: ['의심 PC·서버의 네트워크 연결 분리 (전원은 끄지 않음)', '랜섬노트·화면 사진 촬영, 발견 시각 기록', '공유 폴더·백업 저장소 연결 해제', '유지보수 업체·KISA 118 연락', '백업 복구 가능 여부 확인'] },
-  { id: 'account', name: '계정 탈취·무단 접속 의심', pi: false, assets: a => a.exposure === '예' && a.criticality !== '하',
-    steps: ['의심 계정 비밀번호 변경·세션 종료', '접속 로그 보존 (삭제·덮어쓰기 금지)', '관리자 계정 다중 인증 적용 여부 확인', '무단 접속 경로(VPN·원격 관리) 확인', 'KISA 118 연락'] },
-  { id: 'leak', name: '개인정보 유출 의심', pi: true, assets: a => a.type === 'DB' || /고객|ERP/.test(a.purpose || ''),
-    steps: ['유출 경로 차단 (계정·접근 권한 회수)', '유출 항목·규모 파악, 기록', '접속기록·로그 보존', '개인정보 보호책임자 보고', '신고·통지 기한 확인 후 신고서 작성'] },
-  { id: 'deface', name: '홈페이지 변조', pi: false, assets: a => a.exposure === '예' && /웹/.test(`${a.type} ${a.purpose || ''}`),
-    steps: ['변조 화면 캡처, 발견 시각 기록', '서비스 일시 중단 또는 점검 페이지 전환', '웹 서버 로그·변조 파일 보존', '관리자 계정·업로드 경로 확인', 'KISA 118 연락'] },
-];
-const REPORT_DEADLINES = [
-  { id: 'kisa', name: '침해사고 신고 (KISA)', hours: 24, basis: '정보통신망법 [기한 조항 확인 필요]', pi: false },
-  { id: 'pipc', name: '개인정보 유출 신고', hours: 72, basis: '개인정보 보호법 [기한 조항 확인 필요]', pi: true },
-  { id: 'notify', name: '정보주체 유출 통지', hours: 72, basis: '개인정보 보호법 [기한 조항 확인 필요]', pi: true },
 ];
 
 // 정부 지원사업 (조건·지원 비율은 공고별 확인 필요)
@@ -463,7 +445,7 @@ const OPS_SITES = {
   ] },
 };
 
-// 실사이트 적용 점검: 관측 결과 (2026-10-19 읽기 전용 GET 요청 — 응답 헤더·HTML·공개 스크립트)
+// 실사이트 보안 헤더 점검 (사이트 시작하기 근거 패널): 관측 결과 (2026-10-19 읽기 전용 GET 요청 — 응답 헤더·HTML·공개 스크립트)
 const MYSITE_OBSERVED = '2026-10-19';
 const MYSITE_CHECKS = [
   ['호스팅', 'Cloudflare (CF-Cache-Status 응답)', 'Cloudflare Workers'],
@@ -478,47 +460,6 @@ const MYSITE_CHECKS = [
   ['robots·sitemap', '있음 (ko·en 페이지 색인)', '있음'],
 ];
 
-// 기능별 적용 판정: [판정(가능·부분·해당 없음), 근거]. view는 시연 바로가기 화면
-const MYSITE_FEATURES = [
-  { feature: '할 일 홈·위험 평가', view: 'todo',
-    ANI: ['부분', '관리형 플랫폼·정적 페이지라 매칭 위협 없음 — 설정 점검 할 일로 운영'],
-    WN: ['가능', 'React 19.3.0 ↔ 가상 CVE-2026-41009 버전 범위 매칭 → 할 일·증빙 종결'] },
-  { feature: '자동 자산 탐색', view: 'assets',
-    ANI: ['부분', '외부 노출 점검만 — 서버 접속은 서버리스라 해당 없음, 저장소 미연결'],
-    WN: ['부분', '외부 노출 점검으로 번들의 React 버전 확인 — 서버 접속 해당 없음, 저장소 미연결'] },
-  { feature: '외부 점검 결과 가져오기', view: 'assets',
-    ANI: ['가능', '보안 헤더 5종 부재·security.txt 미게시 → 설정 취약 할 일'],
-    WN: ['가능', 'CSP·클릭재킹·nosniff 헤더 부재, 외부 CSS SRI 미적용 → 설정 취약 할 일'] },
-  { feature: '에이전트 대화', view: 'chat',
-    ANI: ['가능', '자산·할 일·오류 기록 기준 답변'], WN: ['가능', '자산·할 일·오류 기록 기준 답변'] },
-  { feature: '오류 모니터링', view: 'ops',
-    ANI: ['부분', '사이트 구성요소로 원인 분석 동작, 지표는 합성 — 실연동은 Cloudflare Analytics·Logpush 필요'],
-    WN: ['부분', '사이트 구성요소로 원인 분석 동작, 지표는 합성 — 실연동은 Workers Analytics·Logpush 필요'] },
-  { feature: '리포트(보안·오류)', view: 'report',
-    ANI: ['가능', '경영진 요약·오류 보고서 생성'], WN: ['가능', '경영진 요약·오류 보고서 생성'] },
-  { feature: '사고 대응', view: 'incident',
-    ANI: ['가능', '홈페이지 변조·계정 탈취(호스팅 계정) 체크리스트'],
-    WN: ['가능', '개인정보 유출(Google 계정 이메일)·계정 탈취 — 신고 기한 포함'] },
-  { feature: '보안 의무 일정', view: 'todo',
-    ANI: ['부분', '개인정보 처리 여부 확인 필요 — 현재 백업 복구 테스트만 표시'],
-    WN: ['가능', '개인정보 처리 → 접속기록 점검·취급자 교육 일정'] },
-  { feature: '계약·단종 관리', view: 'assets',
-    ANI: ['부분', '도메인·플랫폼 요금제 만료일 입력 시 동작 (외부 관측 불가)'],
-    WN: ['부분', 'workers.dev 무료 도메인 — 플랫폼 요금제 만료일 입력 시 동작'] },
-  { feature: '요금제·지원사업', view: 'plans',
-    ANI: ['가능', '1인 사업자 — 무료 플랜, 회사 조건별 지원사업 매칭'], WN: ['가능', '1인 사업자 — 무료 플랜, 회사 조건별 지원사업 매칭'] },
-  { feature: '파트너 콘솔(고객사 비교)', view: 'tenants',
-    ANI: ['가능', '두 사이트를 고객사 2곳으로 비교'], WN: ['가능', '두 사이트를 고객사 2곳으로 비교'] },
-  { feature: '위협 정보 갱신 시뮬레이션', view: 'todo',
-    ANI: ['부분', '재평가 흐름은 동작, 현재 갱신 대상(Jenkins·MySQL)과 무관'], WN: ['부분', '재평가 흐름은 동작, 현재 갱신 대상(Jenkins·MySQL)과 무관'] },
-  { feature: '점검 대응(원청 점검표)', view: 'audit',
-    ANI: ['해당 없음', '원청 협력사 아님 — 양식 작성은 동작하나 제출처 없음'], WN: ['해당 없음', '원청 협력사 아님 — 양식 작성은 동작하나 제출처 없음'] },
-  { feature: '국내 공지 구조화', view: 'dashboard',
-    ANI: ['해당 없음', '국산 SW 미사용'], WN: ['해당 없음', '국산 SW 미사용'] },
-  { feature: '영향 조건 확인·외주 요청', view: 'analysis',
-    ANI: ['해당 없음', '조건 확인 대상(Apache·Jenkins·Tomcat) 없음, 외주 운영 아님'], WN: ['해당 없음', '조건 확인 대상(Apache·Jenkins·Tomcat) 없음, 외주 운영 아님'] },
-];
-
 // 오류 유형별 신규 경고·오류 로그 템플릿 (합성 로그용)
 const OPS_LOG_TEMPLATES = {
   cpu: ['WARN request timeout after 3000ms', 'WARN worker queue backlog <:NUM:> requests'],
@@ -529,7 +470,7 @@ const OPS_LOG_TEMPLATES = {
   socket: ['ERROR DB connection pool exhausted', 'ERROR cannot acquire connection within 3000ms', 'WARN too many open connections'],
 };
 
-// ---------- 사이트 시작하기 (운영 기본값 스타터, 기획안 5-7) — 실제 생성·배포 없음 ----------
+// ---------- 사이트 시작하기 (운영 기본값 스타터, 기획안_v3 5-7) — 실제 생성·배포 없음 ----------
 
 // 업종 템플릿 2종. components id web·app·db는 오류 전파 규칙 호환용으로 유지
 const STARTER_TEMPLATES = [
@@ -589,4 +530,28 @@ const STARTER_CHANGES = [
     fix: 'CSP 허용 목록에 위젯 도메인 추가 + SRI 해시 넣은 스크립트 태그 제공', title: '외부 위젯 스크립트 허용·무결성 설정', priority: '높음', priorityCls: 'p-high' },
   { id: 'form', name: '접수 처리 코드 수정 — 접수 실패 증가', type: '오류', ops: { component: 'app', fault: 'loss' },
     detect: '오류 감시: 접수 처리 구성요소 요청 실패 급증' },
+];
+
+// 보안 헤더 기본값 (사이트 스타터 기본값·설정 보완 수정안 공용)
+const SECURITY_HEADERS = [
+  ['Strict-Transport-Security', 'max-age=31536000; includeSubDomains'],
+  ['Content-Security-Policy-Report-Only', "default-src 'self'; img-src 'self' data:; frame-ancestors 'none'"],
+  ['X-Frame-Options', 'DENY'],
+  ['X-Content-Type-Options', 'nosniff'],
+  ['Referrer-Policy', 'strict-origin-when-cross-origin'],
+  ['Permissions-Policy', 'camera=(), microphone=(), geolocation=()'],
+];
+
+// ---------- 설정 보완 수정안 (기획안_v3 5-8, L1) — 실제 반영·재점검 없음 ----------
+// 점검 항목 → 규칙 템플릿 수정안. 수정 내용은 규칙, 쉬운 설명만 LLM 자리, 반영은 승인 후, 재점검으로 종결
+const CONFIG_FIXES = [
+  { id: 'hsts', match: /HSTS|Strict-Transport/i, header: 'Strict-Transport-Security', priority: '높음', plain: '항상 자물쇠(HTTPS) 주소로만 접속하게 고정' },
+  { id: 'csp', match: /CSP|Content-Security/i, header: 'Content-Security-Policy-Report-Only', priority: '높음', plain: '허용한 곳의 스크립트만 실행 — 처음엔 막지 않고 위반만 보고하는 모드로 시작해 광고·분석 스크립트 장애 방지' },
+  { id: 'frame', match: /X-Frame|frame-ancestors|클릭재킹/, header: 'X-Frame-Options', priority: '높음', plain: '다른 사이트가 우리 화면을 몰래 겹쳐 띄워 클릭을 가로채지 못하게 막음' },
+  { id: 'nosniff', match: /nosniff|X-Content-Type/i, header: 'X-Content-Type-Options', priority: '보통', plain: '파일 종류를 브라우저가 멋대로 추측해 실행하지 않게 함' },
+  { id: 'referrer', match: /Referrer-Policy/i, header: 'Referrer-Policy', priority: '보통', plain: '다른 사이트로 넘어갈 때 우리 주소 정보를 최소한만 넘김' },
+  { id: 'securitytxt', match: /security\.txt/i, file: '/.well-known/security.txt', priority: '낮음', plain: '취약점을 발견한 사람이 연락할 곳을 공개 (RFC 9116)',
+    code: 'Contact: mailto:security@{domain}\nExpires: {expires}T00:00:00.000Z\nPreferred-Languages: ko, en' },
+  { id: 'sri', match: /SRI|integrity/i, file: '외부 CSS·스크립트 태그', priority: '보통', plain: '외부에서 불러오는 파일이 바뀌면 브라우저가 거부하도록 지문(해시)을 붙임',
+    code: '<link rel="stylesheet" href="{기존 CDN 주소}" integrity="sha384-{배포 파일 해시 — 확인 필요}" crossorigin="anonymous">' },
 ];

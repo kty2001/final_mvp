@@ -22,6 +22,7 @@ const opsMean = xs => xs.reduce((s, x) => s + x, 0) / xs.length;
 const opsStd = xs => { const m = opsMean(xs); return Math.sqrt(opsMean(xs.map(x => (x - m) ** 2))); };
 const opsTime = ms => { const d = new Date(ms), p = n => String(n).padStart(2, '0'); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`; };
 const opsVerified = facts => facts.검증.filter(c => c.판정 === '확인').length;
+const opsOpen = inc => state.tasks.some(t => t.key === `ops|${inc.id}` && t.status !== '완료');
 
 // 시드 고정 난수 (mulberry32) — 같은 시드면 같은 오류 케이스 재현
 function seededRandom(seed) {

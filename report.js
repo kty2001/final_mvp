@@ -1,10 +1,10 @@
 // 자동 리포트 생성: 현재 평가·조치 데이터를 섹션 구조로 만들고 HTML·Markdown으로 출력
 
 const REPORT_TYPES = {
-  exec: '경영진 요약 보고서', detail: '실무자 상세 보고서', compliance: '조치 이행 보고서', alert: '긴급 알림 리포트',
+  exec: '경영진 운영 보고서', detail: '실무자 상세 보고서', compliance: '조치 이행 보고서', alert: '긴급 알림 리포트',
   audit: '점검 양식 제출본', support: '지원사업 신청 자료', error: '오류 보고서',
 };
-const REPORT_TABS = ['exec', 'detail', 'compliance', 'alert', 'error'];
+const REPORT_TABS = ['exec', 'detail', 'compliance', 'alert', 'error']; // 기획안_v3 6-5 — 점검 양식·지원사업 자료는 보관함에서 열람
 
 // 완료 업무의 평균 소요일 (생성일 → 확인 일자)
 function avgTaskDays(tasks) {
@@ -78,7 +78,7 @@ function buildReport(type, keys) {
       summary: `${form.name}: 충족 ${cnt('충족')} · 부분 ${cnt('부분')} · 갭 ${cnt('갭')} · 작성 필요 ${cnt('작성 필요')}.`,
       sections: [
         { heading: '항목별 답변', table: { head: ['항목', '내용', '상태', '답변', '근거'], rows: rows.map(r => [r.no, r.text, r.status, r.answer, r.evidence.join(' / ') || '-']) } },
-        { heading: '비고', paragraphs: ['답변은 시스템 기록(자산 대장·조치 이력·증빙·보고·의무 이행·사고 대응 기록)으로 작성한 초안이며 담당자 검토 후 제출함. 근거가 연결된 항목만 충족으로 표기.'] },
+        { heading: '비고', paragraphs: ['답변은 시스템 기록(자산 대장·조치 이력·증빙·보고·의무 이행 기록)으로 작성한 초안이며 담당자 검토 후 제출함. 근거가 연결된 항목만 충족으로 표기.'] },
       ],
     };
   }

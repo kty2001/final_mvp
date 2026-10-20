@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>사이트 자동 운영 도우미</title>
-  <link rel="stylesheet" href="styles.css?v=15">
+  <link rel="stylesheet" href="styles.css?v=19">
 </head>
 <body>
   <header class="topbar">
@@ -17,20 +17,23 @@
         <div id="notifPanel" hidden></div>
       </div>
       <button id="simBtn" data-action="simulate">위협 정보 갱신 시뮬레이션</button>
+      <button data-action="ops-quick">오류 발생 시뮬레이션</button>
       <button class="ghost" data-action="reset">데모 초기화</button>
     </div>
   </header>
   <div class="layout">
+    <!-- 기획안_v3 6-7 화면 구조(IA): 보안 운영·오류 운영 두 축 -->
     <nav class="sidebar">
       <a href="#todo" data-nav="todo">할 일</a>
+      <div class="nav-label">기본</div>
       <a href="#chat" data-nav="chat">에이전트 대화</a>
-      <a href="#ops" data-nav="ops">오류 모니터링</a>
-      <a href="#report" data-nav="report">리포트(보안·오류)</a>
-      <a href="#audit" data-nav="audit">점검 대응</a>
-      <a href="#incident" data-nav="incident">사고 대응</a>
-      <div class="nav-label">상세 분석</div>
+      <a href="#report" data-nav="report">보고</a>
+      <div class="nav-label">보안 운영</div>
       <a href="#dashboard" data-nav="dashboard">위협 현황</a>
       <a href="#analysis" data-nav="analysis">위협 분석</a>
+      <div class="nav-label">오류 운영</div>
+      <a href="#ops" data-nav="ops">오류 모니터링</a>
+      <div class="nav-label">기록</div>
       <a href="#tasks" data-nav="tasks">조치 업무 기록</a>
       <a href="#history" data-nav="history">이력</a>
       <div class="nav-label">설정</div>
@@ -39,20 +42,27 @@
       <a href="#plans" data-nav="plans">요금제·지원사업</a>
       <div class="nav-label">파트너 콘솔</div>
       <a href="#tenants" data-nav="tenants">고객사 현황</a>
-      <div class="nav-label">실사이트 적용</div>
-      <a href="#mysite" data-nav="mysite">내 사이트 적용 점검</a>
     </nav>
     <main id="view"></main>
   </div>
-  <script src="data.js?v=15"></script>
-  <script src="engine.js?v=15"></script>
-  <script src="charts.js?v=15"></script>
-  <script src="intake.js?v=15"></script>
-  <script src="discovery.js?v=15"></script>
-  <script src="compliance.js?v=15"></script>
-  <script src="ops.js?v=15"></script>
-  <script src="report.js?v=15"></script>
-  <script src="agent.js?v=15"></script>
-  <script src="app.js?v=15"></script>
+  <script src="data.js?v=19"></script>
+  <script src="engine.js?v=19"></script>
+  <script src="charts.js?v=19"></script>
+  <script src="intake.js?v=19"></script>
+  <script src="discovery.js?v=19"></script>
+  <script src="compliance.js?v=19"></script>
+  <script src="ops.js?v=19"></script>
+  <script src="report.js?v=19"></script>
+  <script src="agent.js?v=19"></script>
+  <script src="app.js?v=19"></script>
+  <script src="views/todo.js?v=19"></script>
+  <script src="views/chat.js?v=19"></script>
+  <script src="views/reports.js?v=19"></script>
+  <script src="views/analysis.js?v=19"></script>
+  <script src="views/records.js?v=19"></script>
+  <script src="views/assets.js?v=19"></script>
+  <script src="views/ops.js?v=19"></script>
+  <script src="views/starter.js?v=19"></script>
+  <script src="views/settings.js?v=19"></script>
 </body>
 </html>

@@ -1,9 +1,9 @@
-// 국내 제도·운영 기능(목업): 점검 양식 자동 작성, 법정·인증 의무 캘린더, 계약·단종 대장, 대표 결정 요청, 정부 지원사업 매칭, 사고 대응 신고 기한
+// 국내 제도·운영 기능(목업): 점검 양식 자동 작성, 법정·인증 의무 캘린더, 계약·단종 대장, 대표 결정 요청, 정부 지원사업 매칭
 // 판정은 시스템 기록과 규칙으로만 수행 — 근거가 연결되지 않은 항목은 "충족"으로 쓰지 않음
 
 const AUDIT_STATUS_CLS = { 충족: 'p-done', 부분: 'p-medium', 갭: 'p-urgent', '작성 필요': 'p-none' };
 
-// 점검 항목 1건을 시스템 기록(자산·업무·증빙·보고·의무 이행·사고 기록)과 대조
+// 점검 항목 1건을 시스템 기록(자산·업무·증빙·보고·의무 이행)과 대조
 function auditEvidence(rule) {
   const r = (status, answer, evidence = []) => ({ status, answer, evidence });
   if (rule === 'inventory') {
@@ -46,11 +46,6 @@ function auditEvidence(rule) {
     const sched = state.schedules.exec.on && planOf().schedule;
     if (logs.length) return r('충족', `예 — 경영진 요약 보고서 ${logs.length}건 발송·보관${sched ? `, ${state.schedules.exec.freq} 정기 발송 설정` : ''}.`, logs.slice(0, 3).map(l => `${l.generatedAt} ${l.trigger}`));
     return sched ? r('부분', `정기 보고 예약(${state.schedules.exec.freq})은 있으나 발송 기록 없음.`, ['정기 보고 예약 설정']) : r('갭', '경영진 보고 기록 없음.');
-  }
-  if (rule === 'incident') {
-    return state.incidents.length
-      ? r('충족', `예 — 침해사고 첫 대응 체크리스트 운영, 대응·훈련 기록 ${state.incidents.length}건.`, state.incidents.slice(0, 3).map(i => `${i.mode} — ${i.typeName} (${i.startedAt.replace('T', ' ')})`))
-      : r('갭', '대응·훈련 기록 없음 — 사고 대응 화면에서 모의 훈련 후 기록 가능.');
   }
   return r('작성 필요', '시스템 기록에 근거 없음 — 담당자 직접 작성.');
 }
@@ -118,37 +113,4 @@ function matchPrograms(s = state) {
     if (p.needsServer) (servers ? ok : fail).push(`서버 자산 ${servers}건`);
     return { ...p, eligible: !fail.length, ok, fail };
   });
-}
-
-// 사고 대응: 신고·통지 기한과 남은 시간
-const fmtDateTime = d => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
-const leftText = min => (min < 0 ? `기한 경과 ${Math.floor(-min / 60)}시간 ${-min % 60}분` : `${Math.floor(min / 60)}시간 ${min % 60}분 남음`);
-
-function incidentDeadlines(inc) {
-  const type = INCIDENT_TYPES.find(t => t.id === inc.type);
-  const start = new Date(inc.startedAt).getTime();
-  return REPORT_DEADLINES.filter(d => !d.pi || type.pi).map(d => {
-    const due = new Date(start + d.hours * 3600e3);
-    return { ...d, due: fmtDateTime(due), left: Math.round((due - Date.now()) / 60000), done: !!inc.done[d.id] };
-  });
-}
-
-// 신고서 초안: 회사·인지 시각·관련 추정 자산·조치 현황 자동 정리
-function incidentDraft(inc) {
-  const type = INCIDENT_TYPES.find(t => t.id === inc.type);
-  const related = state.assets.filter(type.assets);
-  const done = type.steps.filter((s, i) => inc.steps[i]);
-  const log = state.history.filter(h => h.type === '사고 대응' && h.time >= inc.openedAt).slice(0, 5);
-  return {
-    head: ['항목', '내용'],
-    rows: [
-      ['회사명', `${state.name} (${state.industry}, 임직원 ${state.profile.employees}명)`],
-      ['구분·유형', `${inc.mode} · ${type.name}`],
-      ['인지 일시', inc.startedAt.replace('T', ' ')],
-      ['관련 추정 자산', related.length ? related.map(a => `${a.name}(${a.product} ${a.version || '버전 미등록'})`).join(', ') : '자산 대장에서 추정 불가 — 직접 기재'],
-      ['수행한 조치', done.length ? done.join(' / ') : '아직 없음'],
-      ['대응 기록', log.length ? log.map(h => `${h.time} ${h.text}`).join(' / ') : '-'],
-      ['연락 담당', '인프라 담당 (목업)'],
-    ],
-  };
 }
