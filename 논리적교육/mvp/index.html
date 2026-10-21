@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>사고력 추론 학습</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">사고력 추론 학습 <span class="tag">MVP v2</span></div>
+    <select id="unitSel" class="unit-sel" data-change="unitSel" aria-label="단원 선택"></select>
+    <span id="dayNow" class="day-now"></span>
+    <div class="notice">시연용 목업 — AI 진단은 규칙 기반 모의, 문항·태그·카드는 검수 전 예시</div>
+    <button class="ghost" data-action="reset">데모 초기화</button>
+  </header>
+  <div class="layout">
+    <!-- 기획안_v2 6-2 화면 구성 -->
+    <nav class="sidebar">
+      <div class="nav-label">아이</div>
+      <a href="#learn" data-nav="learn">오늘의 개념</a>
+      <a href="#memory" data-nav="memory">암기 카드</a>
+      <a href="#feedback" data-nav="feedback">피드백·보충</a>
+      <a href="#retry" data-nav="retry">재도전</a>
+      <div class="nav-label">부모</div>
+      <a href="#review" data-nav="review">부모 검토 <span id="reviewDot" class="dot" hidden></span></a>
+      <a href="#metrics" data-nav="metrics">학습 기반 지표</a>
+      <div class="nav-label">함께</div>
+      <a href="#growth" data-nav="growth">성장 기록</a>
+    </nav>
+    <main id="view"></main>
+  </div>
+  <script src="data.js"></script>
+  <script src="app.js"></script>
+  <script src="memory.js"></script>
+  <script src="metrics.js"></script>
+</body>
+</html>
