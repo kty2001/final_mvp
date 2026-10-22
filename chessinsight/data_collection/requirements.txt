@@ -1,0 +1,4 @@
+requests
+zstandard
+python-docx
+chess

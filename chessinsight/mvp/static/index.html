@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ChessInsight AI</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header>
+  <h1>ChessInsight AI <small>MVP</small></h1>
+  <nav>
+    <button data-tab="dashboard" class="active">대시보드</button>
+    <button data-tab="upload">대국 업로드</button>
+    <button data-tab="review">대국 리뷰</button>
+    <button data-tab="report">약점 분석</button>
+    <button data-tab="periodic">정기 리포트</button>
+  </nav>
+</header>
+
+<main>
+  <!-- 대시보드 -->
+  <section id="tab-dashboard" class="tab active">
+    <p id="dash-empty" class="msg" hidden>분석이 끝난 대국 없음. "대국 업로드" 탭에서 PGN 업로드 또는 샘플 불러오기.</p>
+    <div id="dash">
+      <div id="kpis" class="summary kpis"></div>
+      <p class="hint">추세는 직전 <b id="win-size">10</b>판 이동 집계. 점선 구간 = 포함 판 수가 기준 미만(표본 부족). 점을 클릭하면 해당 대국 리뷰로 이동.</p>
+      <div class="chart-grid">
+        <div class="card"><h2>레이팅 추이 <small>상대 레이팅은 맥락 표시</small></h2><div class="chart-box"><canvas id="ch-rating"></canvas></div></div>
+        <div class="card"><h2>정확도·득점률 <small>이동 평균, %</small></h2><div class="chart-box"><canvas id="ch-perf"></canvas></div></div>
+        <div class="card"><h2>실수 빈도 <small>100수당 실수·블런더, 이동 집계</small></h2><div class="chart-box"><canvas id="ch-errors"></canvas></div></div>
+        <div class="card"><h2>국면별 정확도 <small>월별</small></h2><div class="chart-box"><canvas id="ch-phase"></canvas></div></div>
+      </div>
+      <details class="card"><summary>데이터 표 보기</summary><div class="table-wrap"><table id="dash-table"></table></div></details>
+    </div>
+  </section>
+
+  <!-- 업로드 -->
+  <section id="tab-upload" class="tab">
+    <div class="card">
+      <h2>PGN 업로드</h2>
+      <form id="upload-form">
+        <label>내 닉네임 <input id="username" placeholder="PGN의 White/Black 이름" required></label>
+        <label>PGN 파일 <input id="pgn-file" type="file" accept=".pgn,.txt" required></label>
+        <button type="submit">업로드 및 분석</button>
+        <button type="button" id="sample-btn" class="secondary">샘플 36판 불러오기</button>
+      </form>
+      <p id="upload-msg" class="msg"></p>
+    </div>
+    <div class="card">
+      <h2>대국 목록</h2>
+      <table id="game-table">
+        <thead><tr><th>날짜</th><th>백</th><th>흑</th><th>결과</th><th>오프닝</th><th>상태</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- 리뷰 -->
+  <section id="tab-review" class="tab">
+    <p id="review-empty" class="msg">대국 목록에서 분석이 끝난 대국을 선택.</p>
+    <div id="review" hidden>
+      <h2 id="review-title"></h2>
+      <div id="game-summary" class="summary"></div>
+      <div class="review-grid">
+        <div>
+          <div id="board" class="board"></div>
+          <div class="board-nav">
+            <button id="nav-first">⏮</button><button id="nav-prev">◀</button>
+            <button id="nav-next">▶</button><button id="nav-last">⏭</button>
+            <button id="nav-pv" class="secondary">최선 수순 재생</button>
+          </div>
+          <svg id="graph" viewBox="0 0 400 100" preserveAspectRatio="none"></svg>
+          <p class="hint">그래프: 백 승률(위 = 백 유리). 클릭하면 해당 수로 이동.</p>
+        </div>
+        <div>
+          <div id="move-list" class="move-list"></div>
+          <div id="move-panel" class="card"></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 리포트 -->
+  <section id="tab-report" class="tab">
+    <div class="card">
+      <h2>개요</h2>
+      <div id="overview" class="summary"></div>
+    </div>
+    <div class="card">
+      <h2>반복 약점 <small>실수·블런더 기준, 근거 클릭 시 해당 수로 이동</small></h2>
+      <table id="weak-table"><thead><tr><th>유형</th><th>횟수</th><th>100수당</th><th>발생 대국</th><th>응징됨</th><th>신뢰도</th><th>근거</th></tr></thead><tbody></tbody></table>
+      <h3>국면·색별</h3>
+      <table id="break-table"><thead><tr><th>구분</th><th>내 수</th><th>실수 이상</th><th>100수당</th><th>신뢰도</th><th>근거</th></tr></thead><tbody></tbody></table>
+    </div>
+    <div class="card">
+      <h2>기간 비교
+        <select id="days"><option value="7">7일</option><option value="14">14일</option><option value="30" selected>30일</option></select>
+      </h2>
+      <p id="period-range" class="hint"></p>
+      <table id="period-table"><thead><tr><th>항목</th><th>이전 (100수당)</th><th>최근 (100수당)</th><th>판정</th></tr></thead><tbody></tbody></table>
+      <p class="hint">판정: 두 기간 모두 5판 이상일 때 실수 비율 차이를 2-비율 z검정(유의수준 5%)으로 판단.</p>
+    </div>
+    <div class="card">
+      <h2>훈련 추천</h2>
+      <ul id="recs"></ul>
+    </div>
+    <div class="card">
+      <h2>리포트에 질문하기</h2>
+      <form id="ask-form"><input id="question" placeholder="예: 가장 자주 반복된 실수는?"><button type="submit">질문</button></form>
+      <div id="suggestions" class="chips"></div>
+      <div id="chat"></div>
+    </div>
+  </section>
+
+  <!-- 정기 리포트 -->
+  <section id="tab-periodic" class="tab">
+    <div class="card">
+      <h2>정기 리포트
+        <select id="period-kind"><option value="monthly">월간</option><option value="weekly">주간</option></select>
+        <small>분석이 끝날 때마다 자동 생성·갱신</small>
+      </h2>
+      <table id="report-list"><thead><tr><th>기간</th><th>대국</th><th>전적</th><th>정확도</th><th>레이팅</th><th>직전 대비</th></tr></thead><tbody></tbody></table>
+    </div>
+    <div id="report-detail"></div>
+  </section>
+</main>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
