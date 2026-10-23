@@ -28,17 +28,18 @@ CREATE TABLE IF NOT EXISTS games (
 );
 CREATE TABLE IF NOT EXISTS period_reports (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
+    game_type TEXT NOT NULL DEFAULT 'chess',
     kind TEXT NOT NULL,                      -- weekly | monthly
     period_start TEXT NOT NULL,
     period_end TEXT NOT NULL,
     n_games INTEGER NOT NULL,
     generated_at TEXT NOT NULL DEFAULT (datetime('now')),
     data TEXT NOT NULL,
-    UNIQUE (kind, period_start)
+    UNIQUE (game_type, kind, period_start)
 );
 """
 
-COLUMNS = ["id", "white", "black", "white_elo", "black_elo", "user_color", "result", "played_at",
+COLUMNS = ["id", "game_type", "white", "black", "white_elo", "black_elo", "user_color", "result", "played_at",
            "opening", "time_control", "n_plies", "status", "progress", "error", "engine_name", "created_at"]
 
 
@@ -51,18 +52,23 @@ def _conn():
 def init():
     os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
     with _lock, _conn() as c:
+        # 이전 스키마(game_type 없는 period_reports)는 파생 데이터라 지우고 다시 만듦 (시작 시 재생성됨)
+        cols = [r[1] for r in c.execute("PRAGMA table_info(period_reports)")]
+        if cols and "game_type" not in cols:
+            c.execute("DROP TABLE period_reports")
         c.executescript(SCHEMA)
 
 
-def add_game(g, user_color):
+def add_game(g, user_color, game_type="chess", record_format="pgn"):
     """새 대국이면 id, 중복이면 None."""
     with _lock, _conn() as c:
         try:
             cur = c.execute(
-                "INSERT INTO games (hash, record_raw, white, black, white_elo, black_elo, user_color, result,"
-                " played_at, opening, time_control, n_plies) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
-                (g["hash"], g["record_raw"], g["white"], g["black"], g["white_elo"], g["black_elo"], user_color,
-                 g["result"], g["played_at"], g["opening"], g["time_control"], g["n_plies"]))
+                "INSERT INTO games (hash, game_type, record_format, record_raw, white, black, white_elo, black_elo,"
+                " user_color, result, played_at, opening, time_control, n_plies) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                (g["hash"], game_type, record_format, g["record_raw"], g["white"], g["black"], g["white_elo"],
+                 g["black_elo"], user_color, g["result"], g["played_at"], g["opening"], g["time_control"],
+                 g["n_plies"]))
             return cur.lastrowid
         except sqlite3.IntegrityError:
             return None
@@ -76,9 +82,10 @@ def update(game_id, **fields):
         c.execute(f"UPDATE games SET {sets} WHERE id = ?", (*fields.values(), game_id))
 
 
-def list_games():
+def list_games(game_type="chess"):
     with _conn() as c:
-        rows = c.execute(f"SELECT {', '.join(COLUMNS)} FROM games ORDER BY played_at DESC, id DESC").fetchall()
+        rows = c.execute(f"SELECT {', '.join(COLUMNS)} FROM games WHERE game_type = ?"
+                         " ORDER BY played_at DESC, id DESC", (game_type,)).fetchall()
     return [dict(r) for r in rows]
 
 
@@ -93,9 +100,10 @@ def get_game(game_id, with_raw=False):
     return g
 
 
-def done_games():
+def done_games(game_type="chess"):
     with _conn() as c:
-        rows = c.execute(f"SELECT {', '.join(COLUMNS)}, analysis FROM games WHERE status = 'done'").fetchall()
+        rows = c.execute(f"SELECT {', '.join(COLUMNS)}, analysis FROM games WHERE status = 'done' AND game_type = ?",
+                         (game_type,)).fetchall()
     out = []
     for r in rows:
         g = dict(r)
@@ -104,19 +112,20 @@ def done_games():
     return out
 
 
-def upsert_report(kind, start, end, n_games, data):
+def upsert_report(game_type, kind, start, end, n_games, data):
     with _lock, _conn() as c:
         c.execute(
-            "INSERT INTO period_reports (kind, period_start, period_end, n_games, data) VALUES (?,?,?,?,?)"
-            " ON CONFLICT (kind, period_start) DO UPDATE SET period_end = excluded.period_end,"
-            " n_games = excluded.n_games, data = excluded.data, generated_at = datetime('now')",
-            (kind, start, end, n_games, json.dumps(data, ensure_ascii=False)))
+            "INSERT INTO period_reports (game_type, kind, period_start, period_end, n_games, data)"
+            " VALUES (?,?,?,?,?,?) ON CONFLICT (game_type, kind, period_start) DO UPDATE SET"
+            " period_end = excluded.period_end, n_games = excluded.n_games, data = excluded.data,"
+            " generated_at = datetime('now')",
+            (game_type, kind, start, end, n_games, json.dumps(data, ensure_ascii=False)))
 
 
-def list_reports(kind):
+def list_reports(kind, game_type="chess"):
     with _conn() as c:
         rows = c.execute("SELECT id, kind, period_start, period_end, n_games, generated_at, data FROM period_reports"
-                         " WHERE kind = ? ORDER BY period_start DESC", (kind,)).fetchall()
+                         " WHERE kind = ? AND game_type = ? ORDER BY period_start DESC", (kind, game_type)).fetchall()
     out = []
     for r in rows:
         r = dict(r)

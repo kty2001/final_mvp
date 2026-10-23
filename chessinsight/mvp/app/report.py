@@ -7,15 +7,22 @@ SERIOUS = ("mistake", "blunder")
 MIN_GAMES = 5          # 이보다 적으면 결론 보류
 MIN_TAG_COUNT = 3
 
+# 라벨 사전은 체스·포커 키를 함께 둠 (키가 겹치지 않아 게임 종류를 따로 넘기지 않아도 됨)
 TAG_LABEL = {
     "hanging_piece": "기물을 잡히게 둠",
     "missed_capture": "기물 득점 기회 놓침",
     "missed_mate": "메이트 기회 놓침",
     "allowed_mate": "메이트 허용",
     "time_trouble": "시간 부족(30초 미만) 중 실수",
+    # 포커
+    "overcall": "무리한 콜(폴드가 최선)",
+    "overfold": "과도한 폴드",
+    "missed_aggression": "베팅·레이즈 기회 놓침",
+    "overaggression": "과도한 베팅·레이즈",
+    "sizing": "베팅 크기 선택",
 }
-PHASE_LABEL = {"opening": "오프닝", "middlegame": "중반", "endgame": "종반"}
-COLOR_LABEL = {"white": "백", "black": "흑"}
+PHASE_LABEL = {"opening": "오프닝", "middlegame": "중반", "endgame": "종반", "turn": "턴", "river": "리버"}
+COLOR_LABEL = {"white": "백", "black": "흑", "oop": "OOP(먼저 행동)", "ip": "IP(나중 행동)"}
 CLS_LABEL = {"best": "최선", "good": "양호", "inaccuracy": "부정확", "mistake": "실수",
              "blunder": "블런더", "forced": "유일 수"}
 TRAINING = {
@@ -27,6 +34,14 @@ TRAINING = {
     "endgame": "기본 종반 학습(킹 활용, 폰 종반, 룩 종반)",
     "opening": "주로 쓰는 오프닝의 첫 10수 복습",
     "middlegame": "중반 계획 세우기·전술 퍼즐",
+    # 포커
+    "overcall": "상대 베팅 크기 대비 필요한 승률(팟 오즈)과 블로커를 따져 콜 범위를 좁히는 연습",
+    "overfold": "최소 방어 빈도(MDF) 개념으로 너무 쉽게 접지 않도록 방어 범위 복습",
+    "missed_aggression": "밸류 베팅·블러프 후보를 고르는 연습(상대 체크 후 얇은 밸류 포함)",
+    "overaggression": "베팅이 이득인 보드·핸드 구분 연습, 체크로 레인지를 지키는 상황 복습",
+    "sizing": "보드 질감에 따른 베팅 크기 선택 복습",
+    "turn": "턴 카드가 양측 레인지에 주는 영향 분석 연습",
+    "river": "리버 콜·폴드와 밸류·블러프 결정 복습",
 }
 
 
@@ -71,14 +86,22 @@ def game_summary(game):
         "accuracy": round(sum(accuracy(m["loss"]) for m in scored) / len(scored), 1) if scored else None,
         "counts": counts,
         "by_phase": by_phase,
-        "critical": [{"ply": m["ply"], "label": move_label(m["ply"], m["san"]), "cls": m["cls"]} for m in critical],
+        "critical": [{"ply": m["ply"], "label": _label(m), "cls": m["cls"]} for m in critical],
     }
 
 
+def _label(m):
+    """근거 표시용 라벨. 포커는 분석 단계에서 만든 label, 체스는 수 표기."""
+    return m.get("label") or move_label(m["ply"], m["san"])
+
+
+def _opponent(game):
+    return game["black"] if game["user_color"] in ("white", "oop") else game["white"]
+
+
 def _evidence(game, m):
-    opponent = game["black"] if game["user_color"] == "white" else game["white"]
-    return {"game_id": game["id"], "ply": m["ply"], "label": move_label(m["ply"], m["san"]),
-            "cls": m["cls"], "loss": m["loss"], "opponent": opponent, "played_at": game["played_at"]}
+    return {"game_id": game["id"], "ply": m["ply"], "label": _label(m),
+            "cls": m["cls"], "loss": m["loss"], "opponent": _opponent(game), "played_at": game["played_at"]}
 
 
 def _confidence(n_games, count):
@@ -253,7 +276,7 @@ def trend(games, window=10):
         rating, opp_rating = _ratings(g)
         points.append({
             "game_id": g["id"], "date": _game_date(g).isoformat(), "result": s["result"],
-            "opponent": g["black"] if g["user_color"] == "white" else g["white"],
+            "opponent": _opponent(g),
             "rating": rating, "opp_rating": opp_rating, "time_control": g["time_control"],
             "accuracy": s["accuracy"], "moves": len(moves), "errors": len(errors),
             "tags": {t: sum(t in m["tags"] for m in errors) for t in TAG_LABEL},
@@ -296,6 +319,8 @@ def trend(games, window=10):
         "phase_monthly": phase_monthly,
         "tag_labels": TAG_LABEL,
         "phase_labels": PHASE_LABEL,
+        # 실제 등장한 국면만, 사전 순서대로 (체스: 오프닝·중반·종반, 포커: 턴·리버)
+        "phase_order": [ph for ph in PHASE_LABEL if any(ph in m for m in phase_monthly)],
     }
 
 

@@ -1,0 +1,336 @@
+{
+ "hands": [
+  {
+   "date": "2026-09-02",
+   "hero": "oop",
+   "hero_cards": "5c5h",
+   "positions": {
+    "oop": "BB",
+    "ip": "BTN"
+   },
+   "pot": 9,
+   "effective_stack": 95,
+   "board": [
+    "9c",
+    "Ts",
+    "Ad",
+    "9d"
+   ],
+   "river": "Tc",
+   "actions": {
+    "turn": [
+     "CHECK",
+     "CHECK"
+    ],
+    "river": [
+     "CHECK",
+     "CHECK"
+    ]
+   }
+  },
+  {
+   "date": "2026-09-06",
+   "hero": "ip",
+   "hero_cards": "As4h",
+   "positions": {
+    "oop": "BB",
+    "ip": "BTN"
+   },
+   "pot": 6,
+   "effective_stack": 95,
+   "board": [
+    "Kc",
+    "Qc",
+    "2h",
+    "Jh"
+   ],
+   "river": null,
+   "actions": {
+    "turn": [
+     "CHECK",
+     "BET",
+     "FOLD"
+    ],
+    "river": []
+   }
+  },
+  {
+   "date": "2026-09-10",
+   "hero": "oop",
+   "hero_cards": "Jc2c",
+   "positions": {
+    "oop": "BB",
+    "ip": "BTN"
+   },
+   "pot": 6,
+   "effective_stack": 95,
+   "board": [
+    "5s",
+    "Jh",
+    "2d",
+    "Ad"
+   ],
+   "river": "9d",
+   "actions": {
+    "turn": [
+     "CHECK",
+     "CHECK"
+    ],
+    "river": [
+     "CHECK",
+     "BET",
+     "CALL"
+    ]
+   }
+  },
+  {
+   "date": "2026-09-14",
+   "hero": "ip",
+   "hero_cards": "QhQs",
+   "positions": {
+    "oop": "BB",
+    "ip": "BTN"
+   },
+   "pot": 6,
+   "effective_stack": 95,
+   "board": [
+    "3d",
+    "Kd",
+    "6c",
+    "7c"
+   ],
+   "river": null,
+   "actions": {
+    "turn": [
+     "CHECK",
+     "BET",
+     "FOLD"
+    ],
+    "river": []
+   }
+  },
+  {
+   "date": "2026-09-18",
+   "hero": "oop",
+   "hero_cards": "As9c",
+   "positions": {
+    "oop": "BB",
+    "ip": "BTN"
+   },
+   "pot": 9,
+   "effective_stack": 95,
+   "board": [
+    "2d",
+    "Qs",
+    "2c",
+    "5d"
+   ],
+   "river": "2s",
+   "actions": {
+    "turn": [
+     "CHECK",
+     "CHECK"
+    ],
+    "river": [
+     "BET",
+     "CALL"
+    ]
+   }
+  },
+  {
+   "date": "2026-09-22",
+   "hero": "ip",
+   "hero_cards": "Tc9h",
+   "positions": {
+    "oop": "BB",
+    "ip": "BTN"
+   },
+   "pot": 9,
+   "effective_stack": 95,
+   "board": [
+    "8h",
+    "Ac",
+    "3s",
+    "4c"
+   ],
+   "river": "5s",
+   "actions": {
+    "turn": [
+     "CHECK",
+     "BET",
+     "CALL"
+    ],
+    "river": [
+     "CHECK",
+     "BET",
+     "CALL"
+    ]
+   }
+  },
+  {
+   "date": "2026-10-01",
+   "hero": "oop",
+   "hero_cards": "Jd9h",
+   "positions": {
+    "oop": "BB",
+    "ip": "BTN"
+   },
+   "pot": 6,
+   "effective_stack": 95,
+   "board": [
+    "8h",
+    "5d",
+    "2c",
+    "6d"
+   ],
+   "river": "As",
+   "actions": {
+    "turn": [
+     "CHECK",
+     "BET",
+     "CALL"
+    ],
+    "river": [
+     "BET",
+     "ALLIN",
+     "FOLD"
+    ]
+   }
+  },
+  {
+   "date": "2026-10-05",
+   "hero": "ip",
+   "hero_cards": "AsQh",
+   "positions": {
+    "oop": "BB",
+    "ip": "BTN"
+   },
+   "pot": 9,
+   "effective_stack": 95,
+   "board": [
+    "3c",
+    "3d",
+    "5d",
+    "Jd"
+   ],
+   "river": "Qc",
+   "actions": {
+    "turn": [
+     "CHECK",
+     "CHECK"
+    ],
+    "river": [
+     "CHECK",
+     "CHECK"
+    ]
+   }
+  },
+  {
+   "date": "2026-10-09",
+   "hero": "oop",
+   "hero_cards": "QsJd",
+   "positions": {
+    "oop": "BB",
+    "ip": "BTN"
+   },
+   "pot": 6,
+   "effective_stack": 95,
+   "board": [
+    "Qc",
+    "4d",
+    "6s",
+    "5h"
+   ],
+   "river": null,
+   "actions": {
+    "turn": [
+     "BET",
+     "FOLD"
+    ],
+    "river": []
+   }
+  },
+  {
+   "date": "2026-10-13",
+   "hero": "ip",
+   "hero_cards": "QcTs",
+   "positions": {
+    "oop": "BB",
+    "ip": "BTN"
+   },
+   "pot": 9,
+   "effective_stack": 95,
+   "board": [
+    "3d",
+    "8h",
+    "2s",
+    "3h"
+   ],
+   "river": "2h",
+   "actions": {
+    "turn": [
+     "CHECK",
+     "CHECK"
+    ],
+    "river": [
+     "CHECK",
+     "CHECK"
+    ]
+   }
+  },
+  {
+   "date": "2026-10-17",
+   "hero": "oop",
+   "hero_cards": "As8h",
+   "positions": {
+    "oop": "BB",
+    "ip": "BTN"
+   },
+   "pot": 6,
+   "effective_stack": 95,
+   "board": [
+    "3c",
+    "4c",
+    "5h",
+    "9h"
+   ],
+   "river": null,
+   "actions": {
+    "turn": [
+     "CHECK",
+     "BET",
+     "FOLD"
+    ],
+    "river": []
+   }
+  },
+  {
+   "date": "2026-10-21",
+   "hero": "ip",
+   "hero_cards": "QhJh",
+   "positions": {
+    "oop": "BB",
+    "ip": "BTN"
+   },
+   "pot": 6,
+   "effective_stack": 95,
+   "board": [
+    "9c",
+    "5s",
+    "2s",
+    "2h"
+   ],
+   "river": "4s",
+   "actions": {
+    "turn": [
+     "CHECK",
+     "CHECK"
+    ],
+    "river": [
+     "BET",
+     "FOLD"
+    ]
+   }
+  }
+ ]
+}

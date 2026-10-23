@@ -8,11 +8,26 @@ from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from . import coach, report, store
-from .analysis import BASE_DIR, analyze_game, engine_path, parse_pgn
+from . import analysis, coach, poker, report, store
+from .analysis import BASE_DIR
 
 app = FastAPI(title="ChessInsight AI MVP")
 _jobs: "queue.Queue[int]" = queue.Queue()
+
+# 게임 어댑터 (기획서 4.5의 최소 형태): 게임마다 다른 부분은 기록 파싱·분석·엔진 이름뿐이고
+# 저장·집계·리포트·질의는 공통 코드를 그대로 씀
+GAMES = {
+    "chess": {"parse": analysis.parse_pgn, "analyze": analysis.analyze_game, "format": "pgn",
+              "engine": lambda: os.path.basename(analysis.engine_path()), "sample": "sample.pgn"},
+    "poker": {"parse": poker.parse_hands, "analyze": poker.analyze_hand, "format": "hand-json",
+              "engine": lambda: poker.ENGINE_NAME, "sample": "poker_hands.json"},
+}
+
+
+def _game_type(game_type):
+    if game_type not in GAMES:
+        raise HTTPException(400, f"game_type은 {', '.join(GAMES)} 중 하나")
+    return game_type
 
 
 @app.middleware("http")
@@ -30,11 +45,11 @@ def _worker():
         g = store.get_game(game_id, with_raw=True)
         if not g:
             continue
+        adapter = GAMES[g["game_type"]]
         store.update(game_id, status="analyzing", progress=0, error=None)
         try:
-            moves = analyze_game(g["record_raw"], lambda p: store.update(game_id, progress=p))
-            store.update(game_id, status="done", progress=100, analysis=moves,
-                         engine_name=os.path.basename(engine_path()))
+            moves = adapter["analyze"](g["record_raw"], lambda p: store.update(game_id, progress=p))
+            store.update(game_id, status="done", progress=100, analysis=moves, engine_name=adapter["engine"]())
         except Exception as e:
             store.update(game_id, status="error", error=str(e))
         if _jobs.empty():  # 대기 중인 분석이 없으면 정기 리포트 갱신
@@ -42,14 +57,15 @@ def _worker():
 
 
 def generate_reports():
-    """완료된 대국이 있는 모든 주·월 리포트를 시간순으로 (재)생성. 직전 리포트와 비교 포함."""
-    games = store.done_games()
-    for kind in ("weekly", "monthly"):
-        prev = None
-        for start, end in report.periods(games, kind):
-            data = report.period_report(games, kind, start, end, prev)
-            store.upsert_report(kind, data["start"], data["end"], data["overview"]["games"], data)
-            prev = data
+    """완료된 대국이 있는 모든 주·월 리포트를 게임 종류별·시간순으로 (재)생성. 직전 리포트와 비교 포함."""
+    for game_type in GAMES:
+        games = store.done_games(game_type)
+        for kind in ("weekly", "monthly"):
+            prev = None
+            for start, end in report.periods(games, kind):
+                data = report.period_report(games, kind, start, end, prev)
+                store.upsert_report(game_type, kind, data["start"], data["end"], data["overview"]["games"], data)
+                prev = data
 
 
 @app.on_event("startup")
@@ -61,18 +77,21 @@ def _startup():
     threading.Thread(target=_worker, daemon=True).start()
 
 
-def _import(text, username):
-    games, errors = parse_pgn(text)
+def _import(text, username, game_type):
+    adapter = GAMES[game_type]
+    games, errors = adapter["parse"](text)
     name = username.strip().lower()
     added, duplicates, unmatched = [], 0, 0
     for g in games:
-        if name and g["white"].lower() == name:
+        if "user_color" in g:  # 포커: 핸드 기록에 히어로 위치가 들어 있음
+            color = g["user_color"]
+        elif name and g["white"].lower() == name:
             color = "white"
         elif name and g["black"].lower() == name:
             color = "black"
         else:
             color, unmatched = "white", unmatched + 1
-        game_id = store.add_game(g, color)
+        game_id = store.add_game(g, color, game_type, adapter["format"])
         if game_id is None:
             duplicates += 1
         else:
@@ -84,24 +103,25 @@ def _import(text, username):
 
 
 @app.post("/api/games/upload")
-async def upload(file: UploadFile = File(...), username: str = Form("")):
+async def upload(file: UploadFile = File(...), username: str = Form(""), game_type: str = Form("chess")):
     raw = await file.read()
     try:
         text = raw.decode("utf-8-sig")
     except UnicodeDecodeError:
-        raise HTTPException(400, "UTF-8 PGN 파일만 지원")
-    return _import(text, username)
+        raise HTTPException(400, "UTF-8 텍스트 파일만 지원")
+    return _import(text, username, _game_type(game_type))
 
 
 @app.post("/api/games/sample")
-def load_sample():
-    with open(os.path.join(BASE_DIR, "sample", "sample.pgn"), encoding="utf-8") as f:
-        return _import(f.read(), "demo_user")
+def load_sample(game_type: str = "chess"):
+    adapter = GAMES[_game_type(game_type)]
+    with open(os.path.join(BASE_DIR, "sample", adapter["sample"]), encoding="utf-8") as f:
+        return _import(f.read(), "demo_user", game_type)
 
 
 @app.get("/api/games")
-def games():
-    return store.list_games()
+def games(game_type: str = "chess"):
+    return store.list_games(_game_type(game_type))
 
 
 @app.get("/api/games/{game_id}")
@@ -120,24 +140,24 @@ def explain(game_id: int, ply: int, type: str = "why_bad"):
         raise HTTPException(404, "분석된 수 없음")
     if type not in ("why_bad", "best_move"):
         raise HTTPException(400, "type은 why_bad 또는 best_move")
-    return coach.explain(g["analysis"][ply - 1], type)
+    return coach.explain(g["analysis"][ply - 1], type, g["game_type"])
 
 
 @app.get("/api/report")
-def get_report(days: int = 30, end: Optional[str] = None):
-    return report.build_report(store.done_games(), days, end)
+def get_report(days: int = 30, end: Optional[str] = None, game_type: str = "chess"):
+    return report.build_report(store.done_games(_game_type(game_type)), days, end)
 
 
 @app.get("/api/dashboard")
-def dashboard(window: int = 10):
-    return report.trend(store.done_games(), max(1, window))
+def dashboard(window: int = 10, game_type: str = "chess"):
+    return report.trend(store.done_games(_game_type(game_type)), max(1, window))
 
 
 @app.get("/api/reports")
-def reports(kind: str = "monthly"):
+def reports(kind: str = "monthly", game_type: str = "chess"):
     if kind not in ("weekly", "monthly"):
         raise HTTPException(400, "kind는 weekly 또는 monthly")
-    return store.list_reports(kind)
+    return store.list_reports(kind, _game_type(game_type))
 
 
 @app.post("/api/reports/generate")
@@ -157,16 +177,17 @@ def get_period_report(report_id: int):
 class Question(BaseModel):
     question: str
     days: int = 30
+    game_type: str = "chess"
 
 
 @app.post("/api/ask")
 def ask(q: Question):
-    return coach.answer(q.question, report.build_report(store.done_games(), q.days))
+    return coach.answer(q.question, report.build_report(store.done_games(_game_type(q.game_type)), q.days), q.game_type)
 
 
 @app.get("/api/suggestions")
-def suggestions():
-    return coach.SUGGESTIONS
+def suggestions(game_type: str = "chess"):
+    return coach.SUGGESTIONS[_game_type(game_type)]
 
 
 app.mount("/", StaticFiles(directory=os.path.join(BASE_DIR, "static"), html=True), name="static")

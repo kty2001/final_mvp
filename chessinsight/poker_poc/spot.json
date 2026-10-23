@@ -1,0 +1,28 @@
+{
+  "description": "100bb 캐시 6인. BTN 2.5bb 오픈, BB 콜. 플랍 Kh9d4c에서 BB 체크, BTN 1/3 팟 베팅, BB 콜. 턴부터 해석(PoC 단순화: 레인지는 프리플랍 레인지를 그대로 사용, 플랍 행동에 따른 레인지 축소 미반영).",
+  "unit": "bb",
+  "positions": {"oop": "BB", "ip": "BTN"},
+  "hero": "oop",
+  "hero_cards": "Tc9h",
+  "pot": 9.0,
+  "effective_stack": 95,
+  "board": ["Kh", "9d", "4c", "7s"],
+  "river": "2h",
+  "ranges": {
+    "oop": "engine/TexasSolver-v0.2.0-Windows/ranges/6max_range/BTN/2.5bb/BB/Call/BB_range.txt",
+    "ip": "engine/TexasSolver-v0.2.0-Windows/ranges/6max_range/BTN/2.5bb/BB/Call/BTN_range.txt"
+  },
+  "bet_sizes": [
+    "oop,turn,bet,50", "oop,turn,raise,100", "oop,turn,allin",
+    "ip,turn,bet,75", "ip,turn,raise,100", "ip,turn,allin",
+    "oop,river,bet,50", "oop,river,donk,50", "oop,river,raise,100", "oop,river,allin",
+    "ip,river,bet,75", "ip,river,raise,100", "ip,river,allin"
+  ],
+  "allin_threshold": 0.67,
+  "raise_limit": 2,
+  "solver": {"threads": 8, "accuracy": 0.3, "max_iteration": 300},
+  "actions": {
+    "turn": ["CHECK", "BET 7", "CALL"],
+    "river": ["CHECK", "BET 17", "CALL"]
+  }
+}

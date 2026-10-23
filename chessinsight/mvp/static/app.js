@@ -8,12 +8,17 @@ const api = async (url, opts) => {
 
 const CLS = { best: "최선", good: "양호", inaccuracy: "부정확", mistake: "실수", blunder: "블런더", forced: "유일 수" };
 const RESULT = { win: "승", draw: "무", loss: "패", unknown: "-" };
-const PHASE = { opening: "오프닝", middlegame: "중반", endgame: "종반" };
-const TAG = { hanging_piece: "기물 방치", missed_capture: "득점 기회 놓침", missed_mate: "메이트 놓침", allowed_mate: "메이트 허용", time_trouble: "시간 부족" };
+const PHASE = { opening: "오프닝", middlegame: "중반", endgame: "종반", turn: "턴", river: "리버" };
+const TAG = { hanging_piece: "기물 방치", missed_capture: "득점 기회 놓침", missed_mate: "메이트 놓침", allowed_mate: "메이트 허용", time_trouble: "시간 부족",
+  overcall: "무리한 콜", overfold: "과도한 폴드", missed_aggression: "베팅·레이즈 기회 놓침", overaggression: "과도한 베팅·레이즈", sizing: "베팅 크기" };
+const SUIT = { s: "♠", h: "♥", d: "♦", c: "♣" };
 const GLYPH = { k: "♚", q: "♛", r: "♜", b: "♝", n: "♞", p: "♟" };
 const moveLabel = (ply, san) => `${Math.ceil(ply / 2)}${ply % 2 ? "." : "..."}${san}`;
 
-let state = { game: null, idx: 0, pvTimer: null };
+let state = { game: null, idx: 0, pvTimer: null, gameType: "chess" }; // 페이지를 열 때마다 체스로 시작
+const gq = () => `game_type=${state.gameType}`;
+const isPoker = () => state.gameType === "poker";
+const U = () => (isPoker() ? { n: "핸드", unit: "개", per: "100결정당" } : { n: "대국", unit: "판", per: "100수당" });
 
 // ---------------------------------------------------------------- 탭
 function showTab(name) {
@@ -25,9 +30,31 @@ function showTab(name) {
 }
 document.querySelectorAll("nav button").forEach((b) => (b.onclick = () => showTab(b.dataset.tab)));
 
+// ---------------------------------------------------------------- 게임 종류 전환 (체스/포커)
+function applyGameType() {
+  $("#game-type").value = state.gameType;
+  // data-chess / data-poker 속성을 가진 요소의 문구를 게임에 맞게 교체
+  document.querySelectorAll("[data-chess]").forEach((el) => (el.textContent = el.dataset[state.gameType]));
+  $("#username-label").hidden = isPoker();
+  $("#username").required = !isPoker();
+  $("#pgn-file").accept = isPoker() ? ".json" : ".pgn,.txt";
+  state.game = null;
+  $("#review").hidden = true;
+  $("#review-empty").hidden = false;
+  $("#chat").innerHTML = "";
+  refreshGames();
+  loadSuggestions();
+  const active = document.querySelector("nav button.active").dataset.tab;
+  showTab(active === "review" ? "upload" : active);
+}
+$("#game-type").onchange = (e) => {
+  state.gameType = e.target.value;
+  applyGameType();
+};
+
 // ---------------------------------------------------------------- 업로드·목록
 function uploadMessage(r) {
-  const lines = [`추가 ${r.added}판, 중복 제외 ${r.duplicates}판, 오류 ${r.errors.length}건`];
+  const lines = [`추가 ${r.added}${U().unit}, 중복 제외 ${r.duplicates}${U().unit}, 오류 ${r.errors.length}건`];
   r.errors.forEach((e) => lines.push(`  #${e.index}: ${e.error}`));
   if (r.note) lines.push(r.note);
   $("#upload-msg").textContent = lines.join("\n");
@@ -39,20 +66,21 @@ $("#upload-form").onsubmit = async (e) => {
   const fd = new FormData();
   fd.append("file", $("#pgn-file").files[0]);
   fd.append("username", $("#username").value);
+  fd.append("game_type", state.gameType);
   try { uploadMessage(await api("/api/games/upload", { method: "POST", body: fd })); }
   catch (err) { $("#upload-msg").textContent = `업로드 실패: ${err.message}`; }
 };
-$("#sample-btn").onclick = async () => uploadMessage(await api("/api/games/sample", { method: "POST" }));
+$("#sample-btn").onclick = async () => uploadMessage(await api(`/api/games/sample?${gq()}`, { method: "POST" }));
 
 let pollTimer = null;
 async function refreshGames() {
-  const games = await api("/api/games");
+  const games = await api(`/api/games?${gq()}`);
   $("#game-table tbody").innerHTML = games.map((g) => {
     const status = g.status === "done" ? "분석 완료" : g.status === "error" ? `오류: ${esc(g.error)}` : g.status === "analyzing" ? `분석 중 ${g.progress}%` : "대기";
     const me = (c) => (g.user_color === c ? " ★" : "");
     return `<tr class="${g.status === "done" ? "clickable" : ""}" data-id="${g.id}">
-      <td>${esc(g.played_at)}</td><td>${esc(g.white)}${me("white")}</td><td>${esc(g.black)}${me("black")}</td>
-      <td>${esc(g.result)}</td><td>${esc(g.opening)}</td><td class="status-${g.status}">${status}</td></tr>`;
+      <td>${esc(g.played_at)}</td><td>${esc(g.white)}${me(isPoker() ? "oop" : "white")}</td><td>${esc(g.black)}${me(isPoker() ? "ip" : "black")}</td>
+      <td>${esc(isPoker() ? g.n_plies : g.result)}</td><td>${esc(g.opening)}</td><td class="status-${g.status}">${status}</td></tr>`;
   }).join("");
   document.querySelectorAll("#game-table tr.clickable").forEach((tr) => (tr.onclick = () => openGame(+tr.dataset.id, 0)));
   const busy = games.some((g) => g.status === "queued" || g.status === "analyzing");
@@ -69,6 +97,9 @@ async function openGame(id, ply) {
   const g = state.game, s = g.summary;
   $("#review-empty").hidden = true;
   $("#review").hidden = false;
+  $("#chess-review").hidden = g.game_type === "poker";
+  $("#poker-review").hidden = g.game_type !== "poker";
+  if (g.game_type === "poker") return openPoker(g, ply);
   $("#review-title").textContent = `${g.white} vs ${g.black} · ${g.result} · ${g.played_at ?? ""} · ${g.opening ?? ""}`;
   const phases = Object.entries(s.by_phase).map(([k, v]) => `<div class="stat">${PHASE[k]} 정확도<b>${v.accuracy}</b>${v.errors}회 실수</div>`).join("");
   $("#game-summary").innerHTML = `
@@ -162,7 +193,9 @@ function renderPanel(m) {
 async function explain(ply, kind) {
   const r = await api(`/api/games/${state.game.id}/moves/${ply}/explain?type=${kind}`);
   $("#explain").innerHTML = `<div class="explain">${r.text.map((t) => `<p>${esc(t)}</p>`).join("")}
-    <p class="hint">근거: 엔진 최선 수 ${esc(r.evidence.best ?? "-")} · 예상 수순 ${esc(r.evidence.best_line || "-")}</p></div>`;
+    <p class="hint">${state.game.game_type === "poker"
+      ? `근거: TexasSolver GTO 전략 + 행동별 EV(상대 레인지 ${r.evidence.villain_combos ?? "-"}조합 기준)`
+      : `근거: 엔진 최선 수 ${esc(r.evidence.best ?? "-")} · 예상 수순 ${esc(r.evidence.best_line || "-")}`}</p></div>`;
 }
 
 function playPv() {
@@ -186,8 +219,9 @@ $("#nav-last").onclick = () => select(state.game.analysis.length);
 $("#nav-pv").onclick = playPv;
 document.addEventListener("keydown", (e) => {
   if (!$("#tab-review").classList.contains("active") || !state.game || e.target.tagName === "INPUT") return;
-  if (e.key === "ArrowLeft") select(state.idx - 1);
-  if (e.key === "ArrowRight") select(state.idx + 1);
+  const go = state.game.game_type === "poker" ? selectPoker : select;
+  if (e.key === "ArrowLeft") go(state.idx - 1);
+  if (e.key === "ArrowRight") go(state.idx + 1);
 });
 
 function renderGraph() {
@@ -207,6 +241,75 @@ $("#graph").onclick = (e) => {
   select(Math.round(((e.clientX - rect.left) / rect.width) * state.game.analysis.length));
 };
 
+// ---------------------------------------------------------------- 포커 핸드 리뷰
+const cardHtml = (c) => `<span class="pcard ${"hd".includes(c[1]) ? "red" : ""}">${c[0] === "T" ? "10" : c[0]}${SUIT[c[1]]}</span>`;
+const heroEntry = () => state.game.analysis.find((m) => m.cls != null);
+
+function openPoker(g, ply) {
+  const s = g.summary;
+  const pos = g.user_color === "oop" ? g.white : g.black;
+  $("#review-title").textContent = `${g.played_at ?? ""} · ${g.white}(OOP) vs ${g.black}(IP) · 보드 ${g.opening ?? ""}`;
+  const phases = Object.entries(s.by_phase).map(([k, v]) => `<div class="stat">${PHASE[k]} 정확도<b>${v.accuracy}</b>${v.errors}회 실수</div>`).join("");
+  $("#game-summary").innerHTML = `
+    <div class="stat">히어로<b>${esc(pos)} (${g.user_color.toUpperCase()})</b></div>
+    <div class="stat">정확도<b>${s.accuracy ?? "-"}</b>선택지 1개 제외</div>
+    <div class="stat">부정확/실수/블런더<b>${s.counts.inaccuracy} / ${s.counts.mistake} / ${s.counts.blunder}</b></div>
+    ${phases}
+    <div class="stat">핵심 결정<b>${s.critical.map((c) => `<a class="ev" data-ply="${c.ply}">${esc(c.label)}</a>`).join("") || "-"}</b></div>`;
+  $("#game-summary").querySelectorAll("a.ev").forEach((a) => (a.onclick = () => selectPoker(+a.dataset.ply)));
+  let html = "", street = null;
+  for (const m of g.analysis) {
+    if (m.phase !== street) {
+      street = m.phase;
+      html += `<div class="street">${PHASE[street]} ${m.board.slice(street === "river" ? 4 : 3).map(cardHtml).join("")}</div>`;
+    }
+    const hero = m.cls != null;
+    html += `<div class="act ${hero ? "hero " + m.cls : "villain"}" data-ply="${m.ply}">${esc(m.label.split(": ")[1])}${hero ? ` <span class="badge ${m.cls}">${CLS[m.cls]}</span>` : ""}</div>`;
+  }
+  $("#action-list").innerHTML = html;
+  $("#action-list").querySelectorAll(".act").forEach((d) => (d.onclick = () => selectPoker(+d.dataset.ply)));
+  selectPoker(ply || heroEntry().ply);
+}
+
+function selectPoker(ply) {
+  const moves = state.game.analysis;
+  state.idx = Math.max(1, Math.min(moves.length, ply));
+  const m = moves[state.idx - 1];
+  document.querySelectorAll(".act").forEach((d) => d.classList.toggle("sel", +d.dataset.ply === state.idx));
+  const hc = heroEntry().hero_cards;
+  $("#hand-view").innerHTML = `
+    <div class="hv-row"><span class="hv-label">히어로</span>${cardHtml(hc.slice(0, 2))}${cardHtml(hc.slice(2))}</div>
+    <div class="hv-row"><span class="hv-label">보드</span>${m.board.map(cardHtml).join("")}</div>
+    <div class="hv-row"><span class="hv-label">팟</span><b>${m.pot}bb</b></div>`;
+  renderPokerPanel(m);
+}
+
+function renderPokerPanel(m) {
+  const panel = $("#decision-panel");
+  const history = m.history.length ? m.history.join(" → ") : "턴 시작";
+  if (m.cls == null) {
+    panel.innerHTML = `<h3>${esc(m.label)} <small>(상대 행동)</small></h3><p class="msg">상대 행동은 평가하지 않음. 진행: ${esc(history)}</p>`;
+    return;
+  }
+  const rows = m.options.map((o) => `<tr class="${o.action === m.played ? "played" : ""}">
+      <td>${esc(o.text)}${o.action === m.played ? " ← 실제" : ""}${o.action === m.best ? " ★" : ""}</td>
+      <td><div class="freq"><span style="width:${(o.freq * 100).toFixed(1)}%"></span></div>${(o.freq * 100).toFixed(0)}%</td>
+      <td>${o.ev >= 0 ? "+" : ""}${o.ev.toFixed(2)}bb</td></tr>`).join("");
+  const tags = m.tags.map((t) => `<span class="badge">${TAG[t]}</span>`).join(" ");
+  panel.innerHTML = `
+    <h3>${esc(m.label)} <span class="badge ${m.cls}">${CLS[m.cls]}</span></h3>
+    <p class="hint">진행: ${esc(history)}</p>
+    <table class="options"><thead><tr><th>행동</th><th>GTO 빈도</th><th>EV</th></tr></thead><tbody>${rows}</tbody></table>
+    <p>EV 손실 <b>${m.loss_bb.toFixed(2)}bb</b> (팟의 ${m.loss.toFixed(1)}%) ${tags}</p>
+    <p class="hint">★ = EV 최선. 상대 레인지 ${m.villain_combos}조합 기준.</p>
+    <div class="board-nav">
+      <button data-kind="why_bad">이 결정이 왜 문제인가?</button>
+      <button data-kind="best_move" class="secondary">GTO 전략은?</button>
+    </div>
+    <div id="explain"></div>`;
+  panel.querySelectorAll("button[data-kind]").forEach((b) => (b.onclick = () => explain(m.ply, b.dataset.kind)));
+}
+
 // ---------------------------------------------------------------- 리포트
 const evLinks = (ev) => ev.map((e) => `<a class="ev" data-game="${e.game_id}" data-ply="${e.ply}" title="vs ${esc(e.opponent)} ${esc(e.played_at)}">${esc(e.label)}</a>`).join("");
 function bindEv(root) {
@@ -214,23 +317,24 @@ function bindEv(root) {
 }
 
 async function loadReport() {
-  const rep = await api(`/api/report?days=${$("#days").value}`);
+  const rep = await api(`/api/report?days=${$("#days").value}&${gq()}`);
   const o = rep.overview;
+  const hasResult = o.win + o.draw + o.loss > 0;
   $("#overview").innerHTML = `
-    <div class="stat">분석 대국<b>${o.games}판</b></div>
-    <div class="stat">전적<b>${o.win}승 ${o.draw}무 ${o.loss}패</b></div>
+    <div class="stat">분석 ${U().n}<b>${o.games}${U().unit}</b></div>
+    ${hasResult ? `<div class="stat">전적<b>${o.win}승 ${o.draw}무 ${o.loss}패</b></div>` : ""}
     <div class="stat">평균 정확도<b>${o.accuracy ?? "-"}</b></div>
-    ${rep.all ? `<div class="stat">실수 이상<b>${rep.all.errors}회</b>100수당 ${rep.all.rate}회</div>` : ""}
+    ${rep.all ? `<div class="stat">실수 이상<b>${rep.all.errors}회</b>${U().per} ${rep.all.rate}회</div>` : ""}
     ${o.sample_note ? `<div class="stat">${esc(o.sample_note)}</div>` : ""}`;
 
   $("#weak-table tbody").innerHTML = rep.weaknesses.map((w) => `<tr>
-    <td>${esc(w.label)}</td><td>${w.errors}</td><td>${w.rate}</td><td>${w.games_with}판</td><td>${w.punished}</td>
+    <td>${esc(w.label)}</td><td>${w.errors}</td><td>${w.rate}</td><td>${w.games_with}${U().unit}</td><td>${isPoker() ? "-" : w.punished}</td>
     <td>${w.confidence}</td><td>${evLinks(w.evidence)}</td></tr>`).join("") || "<tr><td colspan=7>태그가 붙은 실수 없음</td></tr>";
   $("#break-table tbody").innerHTML = [...rep.phases, ...rep.colors].map((w) => `<tr>
     <td>${esc(w.label)}</td><td>${w.moves}</td><td>${w.errors}</td><td>${w.rate}</td><td>${w.confidence}</td><td>${evLinks(w.evidence.slice(0, 3))}</td></tr>`).join("");
 
   const p = rep.period;
-  $("#period-range").textContent = `이전 ${p.prev_range[0]}~${p.prev_range[1]} (${p.prev_games}판) vs 최근 ${p.cur_range[0]}~${p.cur_range[1]} (${p.cur_games}판)`;
+  $("#period-range").textContent = `이전 ${p.prev_range[0]}~${p.prev_range[1]} (${p.prev_games}${U().unit}) vs 최근 ${p.cur_range[0]}~${p.cur_range[1]} (${p.cur_games}${U().unit})`;
   $("#period-table tbody").innerHTML = p.rows.map((r) => `<tr>
     <td>${esc(r.label)}</td><td>${r.prev.rate} <small>(${r.prev.errors}/${r.prev.moves})</small></td>
     <td>${r.cur.rate} <small>(${r.cur.errors}/${r.cur.moves})</small></td>
@@ -243,7 +347,7 @@ $("#days").onchange = loadReport;
 
 async function ask(q) {
   if (!q.trim()) return;
-  const r = await api("/api/ask", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ question: q, days: +$("#days").value }) });
+  const r = await api("/api/ask", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ question: q, days: +$("#days").value, game_type: state.gameType }) });
   const div = document.createElement("div");
   div.innerHTML = `<div class="q">Q. ${esc(q)}</div><div class="a">${r.text.map((t) => `<p>${esc(t)}</p>`).join("")}
     ${r.evidence.length ? `<p class="hint">근거 수: ${evLinks(r.evidence)}</p>` : ""}
@@ -252,15 +356,17 @@ async function ask(q) {
   bindEv(div);
 }
 $("#ask-form").onsubmit = (e) => { e.preventDefault(); ask($("#question").value); $("#question").value = ""; };
-api("/api/suggestions").then((s) => {
+async function loadSuggestions() {
+  const s = await api(`/api/suggestions?${gq()}`);
   $("#suggestions").innerHTML = s.map((q) => `<button type="button">${esc(q)}</button>`).join("");
   $("#suggestions").querySelectorAll("button").forEach((b) => (b.onclick = () => ask(b.textContent)));
-});
+}
 
 // ---------------------------------------------------------------- 대시보드
 // 범주 색은 엔티티에 고정(순위로 바꾸지 않음). dataviz 기본 팔레트, 검증 통과 순서.
 const SERIES = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#008300"];
-const ERROR_COLOR = { all: SERIES[0], hanging_piece: SERIES[1], missed_capture: SERIES[2], missed_mate: SERIES[3], allowed_mate: SERIES[4], time_trouble: SERIES[5] };
+const ERROR_COLOR = { all: SERIES[0], hanging_piece: SERIES[1], missed_capture: SERIES[2], missed_mate: SERIES[3], allowed_mate: SERIES[4], time_trouble: SERIES[5],
+  overcall: SERIES[1], overfold: SERIES[2], missed_aggression: SERIES[3], overaggression: SERIES[4], sizing: SERIES[5] };
 const INK = { secondary: "#52514e", muted: "#898781", grid: "#e1e0d9" };
 const charts = {};
 const fmtSigned = (v) => (v > 0 ? `+${v}` : `${v}`);
@@ -310,22 +416,25 @@ function lineSet(label, data, color, points, opts = {}) {
 
 async function loadDashboard() {
   state.window = 10;
-  const d = await api(`/api/dashboard?window=${state.window}`);
+  const d = await api(`/api/dashboard?window=${state.window}&${gq()}`);
   const pts = d.points;
   $("#dash-empty").hidden = pts.length > 0;
   $("#dash").hidden = pts.length === 0;
   if (!pts.length) return;
   $("#win-size").textContent = d.window;
   const o = d.overview;
+  const hasResult = pts.some((p) => p.result !== "unknown");
+  const hasRating = pts.some((p) => p.rating != null);
   $("#kpis").innerHTML = `
-    <div class="stat">분석 대국<b>${o.games}판</b><small>${pts[0].date} ~ ${pts[pts.length - 1].date}</small></div>
-    <div class="stat">전적<b>${o.win}승 ${o.draw}무 ${o.loss}패</b></div>
-    <div class="stat">현재 레이팅<b>${o.rating ?? "-"}</b><small>${o.rating_change != null ? `첫 대국 대비 ${fmtSigned(o.rating_change)}` : "레이팅 정보 없음"}</small></div>
-    <div class="stat">최근 ${o.recent_n}판 정확도<b>${o.recent_accuracy ?? "-"}</b><small>전체 평균 ${o.accuracy ?? "-"}</small></div>`;
+    <div class="stat">분석 ${U().n}<b>${o.games}${U().unit}</b><small>${pts[0].date} ~ ${pts[pts.length - 1].date}</small></div>
+    ${hasResult ? `<div class="stat">전적<b>${o.win}승 ${o.draw}무 ${o.loss}패</b></div>` : ""}
+    ${hasRating ? `<div class="stat">현재 레이팅<b>${o.rating ?? "-"}</b><small>${o.rating_change != null ? `첫 대국 대비 ${fmtSigned(o.rating_change)}` : ""}</small></div>` : ""}
+    <div class="stat">최근 ${o.recent_n}${U().unit} 정확도<b>${o.recent_accuracy ?? "-"}</b><small>전체 평균 ${o.accuracy ?? "-"}</small></div>`;
+  $("#card-rating").hidden = !hasRating;
 
   const labels = pts.map((p) => p.date.slice(5));
 
-  if (pts.some((p) => p.rating != null)) {
+  if (hasRating) {
     drawChart("ch-rating", { type: "line", data: { labels, datasets: [
       lineSet("내 레이팅", pts.map((p) => p.rating), SERIES[0], pts),
       lineSet("상대 레이팅", pts.map((p) => p.opp_rating), SERIES[1], pts, { extra: { showLine: false, pointRadius: 3.5, pointStyle: "rectRot" } }),
@@ -334,7 +443,7 @@ async function loadDashboard() {
 
   drawChart("ch-perf", { type: "line", data: { labels, datasets: [
     lineSet("정확도", pts.map((p) => p.rolling.accuracy), SERIES[0], pts, { rolling: true }),
-    lineSet("득점률(승=1, 무=0.5)", pts.map((p) => p.rolling.score_rate), SERIES[1], pts, { rolling: true }),
+    ...(hasResult ? [lineSet("득점률(승=1, 무=0.5)", pts.map((p) => p.rolling.score_rate), SERIES[1], pts, { rolling: true })] : []),
   ] }, options: baseOptions(pts, { y: { min: 0, max: 100 } }) });
 
   const usedTags = Object.keys(d.tag_labels).filter((t) => pts.some((p) => p.tags[t] > 0));
@@ -344,7 +453,7 @@ async function loadDashboard() {
   ] }, options: baseOptions(pts, { y: { min: 0 } }) });
 
   const months = d.phase_monthly;
-  const PHASES = ["opening", "middlegame", "endgame"];
+  const PHASES = d.phase_order;
   const phaseOpts = baseOptions([], { y: { min: 0, max: 100 } });
   phaseOpts.plugins.tooltip.callbacks = {
     label: (ctx) => {
@@ -378,12 +487,12 @@ function verdictSummary(verdicts) {
 }
 
 async function loadReports() {
-  const list = await api(`/api/reports?kind=${$("#period-kind").value}`);
+  const list = await api(`/api/reports?kind=${$("#period-kind").value}&${gq()}`);
   $("#report-list tbody").innerHTML = list.map((r) => {
     const o = r.overview;
     const rating = o.rating_start != null ? `${o.rating_start} → ${o.rating_end}` : "-";
-    return `<tr class="clickable" data-id="${r.id}"><td>${r.period_start} ~ ${r.period_end}</td><td>${r.n_games}판</td>
-      <td>${o.win}승 ${o.draw}무 ${o.loss}패</td><td>${o.accuracy ?? "-"}</td><td>${rating}</td><td>${verdictSummary(r.previous_verdicts)}</td></tr>`;
+    return `<tr class="clickable" data-id="${r.id}"><td>${r.period_start} ~ ${r.period_end}</td><td>${r.n_games}${U().unit}</td>
+      <td>${o.win + o.draw + o.loss ? `${o.win}승 ${o.draw}무 ${o.loss}패` : "-"}</td><td>${o.accuracy ?? "-"}</td><td>${rating}</td><td>${verdictSummary(r.previous_verdicts)}</td></tr>`;
   }).join("") || "<tr><td colspan=6>생성된 리포트 없음. 대국 분석이 끝나면 자동 생성.</td></tr>";
   $("#report-list").querySelectorAll("tr.clickable").forEach((tr) => (tr.onclick = () => loadReportDetail(+tr.dataset.id)));
   if (list.length) loadReportDetail(list[0].id); else $("#report-detail").innerHTML = "";
@@ -408,8 +517,8 @@ async function loadReportDetail(id) {
     <div class="card">
       <h2>${KIND[r.kind]} 리포트 · ${r.start} ~ ${r.end} <small>생성 ${esc(r.generated_at)} (UTC)</small></h2>
       <div class="summary">
-        <div class="stat">대국<b>${o.games}판</b></div>
-        <div class="stat">전적<b>${o.win}승 ${o.draw}무 ${o.loss}패</b></div>
+        <div class="stat">${U().n}<b>${o.games}${U().unit}</b></div>
+        ${o.win + o.draw + o.loss ? `<div class="stat">전적<b>${o.win}승 ${o.draw}무 ${o.loss}패</b></div>` : ""}
         <div class="stat">평균 정확도<b>${o.accuracy ?? "-"}</b></div>
         <div class="stat">레이팅<b>${o.rating_start ?? "-"} → ${o.rating_end ?? "-"}${ratingDelta}</b></div>
         <div class="stat">상대 평균 레이팅<b>${o.opp_rating_avg ?? "-"}</b></div>
@@ -440,5 +549,4 @@ async function loadReportDetail(id) {
   bindEv($("#report-detail"));
 }
 
-refreshGames();
-loadDashboard();
+applyGameType();

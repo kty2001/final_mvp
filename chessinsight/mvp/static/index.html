@@ -9,10 +9,13 @@
 <body>
 <header>
   <h1>ChessInsight AI <small>MVP</small></h1>
+  <label class="game-switch">게임
+    <select id="game-type"><option value="chess">체스</option><option value="poker">포커(홀덤)</option></select>
+  </label>
   <nav>
     <button data-tab="dashboard" class="active">대시보드</button>
-    <button data-tab="upload">대국 업로드</button>
-    <button data-tab="review">대국 리뷰</button>
+    <button data-tab="upload" data-chess="대국 업로드" data-poker="핸드 업로드">대국 업로드</button>
+    <button data-tab="review" data-chess="대국 리뷰" data-poker="핸드 리뷰">대국 리뷰</button>
     <button data-tab="report">약점 분석</button>
     <button data-tab="periodic">정기 리포트</button>
   </nav>
@@ -21,15 +24,15 @@
 <main>
   <!-- 대시보드 -->
   <section id="tab-dashboard" class="tab active">
-    <p id="dash-empty" class="msg" hidden>분석이 끝난 대국 없음. "대국 업로드" 탭에서 PGN 업로드 또는 샘플 불러오기.</p>
+    <p id="dash-empty" class="msg" hidden data-chess='분석이 끝난 대국 없음. "대국 업로드" 탭에서 PGN 업로드 또는 샘플 불러오기.' data-poker='분석이 끝난 핸드 없음. "핸드 업로드" 탭에서 핸드 JSON 업로드 또는 샘플 불러오기.'>분석이 끝난 대국 없음.</p>
     <div id="dash">
       <div id="kpis" class="summary kpis"></div>
-      <p class="hint">추세는 직전 <b id="win-size">10</b>판 이동 집계. 점선 구간 = 포함 판 수가 기준 미만(표본 부족). 점을 클릭하면 해당 대국 리뷰로 이동.</p>
+      <p class="hint">추세는 직전 <b id="win-size">10</b><span data-chess="판" data-poker="핸드">판</span> 이동 집계. 점선 구간 = 포함 판 수가 기준 미만(표본 부족). 점을 클릭하면 해당 대국 리뷰로 이동.</p>
       <div class="chart-grid">
-        <div class="card"><h2>레이팅 추이 <small>상대 레이팅은 맥락 표시</small></h2><div class="chart-box"><canvas id="ch-rating"></canvas></div></div>
-        <div class="card"><h2>정확도·득점률 <small>이동 평균, %</small></h2><div class="chart-box"><canvas id="ch-perf"></canvas></div></div>
-        <div class="card"><h2>실수 빈도 <small>100수당 실수·블런더, 이동 집계</small></h2><div class="chart-box"><canvas id="ch-errors"></canvas></div></div>
-        <div class="card"><h2>국면별 정확도 <small>월별</small></h2><div class="chart-box"><canvas id="ch-phase"></canvas></div></div>
+        <div class="card" id="card-rating"><h2>레이팅 추이 <small>상대 레이팅은 맥락 표시</small></h2><div class="chart-box"><canvas id="ch-rating"></canvas></div></div>
+        <div class="card"><h2 data-chess="정확도·득점률" data-poker="정확도">정확도·득점률</h2><div class="chart-box"><canvas id="ch-perf"></canvas></div></div>
+        <div class="card"><h2>실수 빈도 <small data-chess="100수당 실수·블런더, 이동 집계" data-poker="100결정당 실수·블런더, 이동 집계">100수당 실수·블런더, 이동 집계</small></h2><div class="chart-box"><canvas id="ch-errors"></canvas></div></div>
+        <div class="card"><h2><span data-chess="국면별" data-poker="스트리트별">국면별</span> 정확도 <small>월별</small></h2><div class="chart-box"><canvas id="ch-phase"></canvas></div></div>
       </div>
       <details class="card"><summary>데이터 표 보기</summary><div class="table-wrap"><table id="dash-table"></table></div></details>
     </div>
@@ -38,19 +41,20 @@
   <!-- 업로드 -->
   <section id="tab-upload" class="tab">
     <div class="card">
-      <h2>PGN 업로드</h2>
+      <h2 data-chess="PGN 업로드" data-poker="핸드 JSON 업로드">PGN 업로드</h2>
+      <p class="hint" data-chess="" data-poker="형식: {&quot;hands&quot;: [{date, hero(oop|ip), hero_cards, pot, effective_stack, board(플랍+턴 4장), river, actions{turn[], river[]}}]}. 행동: CHECK·BET·RAISE·CALL·FOLD·ALLIN. 턴·리버만 분석."></p>
       <form id="upload-form">
-        <label>내 닉네임 <input id="username" placeholder="PGN의 White/Black 이름" required></label>
-        <label>PGN 파일 <input id="pgn-file" type="file" accept=".pgn,.txt" required></label>
+        <label id="username-label">내 닉네임 <input id="username" placeholder="PGN의 White/Black 이름" required></label>
+        <label><span data-chess="PGN 파일" data-poker="핸드 JSON 파일">PGN 파일</span> <input id="pgn-file" type="file" accept=".pgn,.txt" required></label>
         <button type="submit">업로드 및 분석</button>
-        <button type="button" id="sample-btn" class="secondary">샘플 36판 불러오기</button>
+        <button type="button" id="sample-btn" class="secondary" data-chess="샘플 36판 불러오기" data-poker="샘플 12핸드 불러오기">샘플 36판 불러오기</button>
       </form>
       <p id="upload-msg" class="msg"></p>
     </div>
     <div class="card">
-      <h2>대국 목록</h2>
+      <h2 data-chess="대국 목록" data-poker="핸드 목록">대국 목록</h2>
       <table id="game-table">
-        <thead><tr><th>날짜</th><th>백</th><th>흑</th><th>결과</th><th>오프닝</th><th>상태</th></tr></thead>
+        <thead><tr><th>날짜</th><th data-chess="백" data-poker="OOP">백</th><th data-chess="흑" data-poker="IP">흑</th><th data-chess="결과" data-poker="결정 수">결과</th><th data-chess="오프닝" data-poker="보드">오프닝</th><th>상태</th></tr></thead>
         <tbody></tbody>
       </table>
     </div>
@@ -58,11 +62,18 @@
 
   <!-- 리뷰 -->
   <section id="tab-review" class="tab">
-    <p id="review-empty" class="msg">대국 목록에서 분석이 끝난 대국을 선택.</p>
+    <p id="review-empty" class="msg" data-chess="대국 목록에서 분석이 끝난 대국을 선택." data-poker="핸드 목록에서 분석이 끝난 핸드를 선택.">대국 목록에서 분석이 끝난 대국을 선택.</p>
     <div id="review" hidden>
       <h2 id="review-title"></h2>
       <div id="game-summary" class="summary"></div>
-      <div class="review-grid">
+      <div id="poker-review" class="review-grid" hidden>
+        <div>
+          <div id="hand-view" class="card hand-view"></div>
+          <div id="action-list" class="action-list"></div>
+        </div>
+        <div id="decision-panel" class="card"></div>
+      </div>
+      <div id="chess-review" class="review-grid">
         <div>
           <div id="board" class="board"></div>
           <div class="board-nav">
@@ -89,17 +100,17 @@
     </div>
     <div class="card">
       <h2>반복 약점 <small>실수·블런더 기준, 근거 클릭 시 해당 수로 이동</small></h2>
-      <table id="weak-table"><thead><tr><th>유형</th><th>횟수</th><th>100수당</th><th>발생 대국</th><th>응징됨</th><th>신뢰도</th><th>근거</th></tr></thead><tbody></tbody></table>
-      <h3>국면·색별</h3>
-      <table id="break-table"><thead><tr><th>구분</th><th>내 수</th><th>실수 이상</th><th>100수당</th><th>신뢰도</th><th>근거</th></tr></thead><tbody></tbody></table>
+      <table id="weak-table"><thead><tr><th>유형</th><th>횟수</th><th data-chess="100수당" data-poker="100결정당">100수당</th><th data-chess="발생 대국" data-poker="발생 핸드">발생 대국</th><th>응징됨</th><th>신뢰도</th><th>근거</th></tr></thead><tbody></tbody></table>
+      <h3 data-chess="국면·색별" data-poker="스트리트·포지션별">국면·색별</h3>
+      <table id="break-table"><thead><tr><th>구분</th><th data-chess="내 수" data-poker="내 결정">내 수</th><th>실수 이상</th><th data-chess="100수당" data-poker="100결정당">100수당</th><th>신뢰도</th><th>근거</th></tr></thead><tbody></tbody></table>
     </div>
     <div class="card">
       <h2>기간 비교
         <select id="days"><option value="7">7일</option><option value="14">14일</option><option value="30" selected>30일</option></select>
       </h2>
       <p id="period-range" class="hint"></p>
-      <table id="period-table"><thead><tr><th>항목</th><th>이전 (100수당)</th><th>최근 (100수당)</th><th>판정</th></tr></thead><tbody></tbody></table>
-      <p class="hint">판정: 두 기간 모두 5판 이상일 때 실수 비율 차이를 2-비율 z검정(유의수준 5%)으로 판단.</p>
+      <table id="period-table"><thead><tr><th>항목</th><th data-chess="이전 (100수당)" data-poker="이전 (100결정당)">이전 (100수당)</th><th data-chess="최근 (100수당)" data-poker="최근 (100결정당)">최근 (100수당)</th><th>판정</th></tr></thead><tbody></tbody></table>
+      <p class="hint" data-chess="판정: 두 기간 모두 5판 이상일 때 실수 비율 차이를 2-비율 z검정(유의수준 5%)으로 판단." data-poker="판정: 두 기간 모두 5핸드 이상일 때 실수 비율 차이를 2-비율 z검정(유의수준 5%)으로 판단.">판정: 두 기간 모두 5판 이상일 때 실수 비율 차이를 2-비율 z검정(유의수준 5%)으로 판단.</p>
     </div>
     <div class="card">
       <h2>훈련 추천</h2>
@@ -120,7 +131,7 @@
         <select id="period-kind"><option value="monthly">월간</option><option value="weekly">주간</option></select>
         <small>분석이 끝날 때마다 자동 생성·갱신</small>
       </h2>
-      <table id="report-list"><thead><tr><th>기간</th><th>대국</th><th>전적</th><th>정확도</th><th>레이팅</th><th>직전 대비</th></tr></thead><tbody></tbody></table>
+      <table id="report-list"><thead><tr><th>기간</th><th data-chess="대국" data-poker="핸드">대국</th><th>전적</th><th>정확도</th><th>레이팅</th><th>직전 대비</th></tr></thead><tbody></tbody></table>
     </div>
     <div id="report-detail"></div>
   </section>
